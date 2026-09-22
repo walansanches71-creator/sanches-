@@ -1,1 +1,40 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Produção VIP — Central</title><style>*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#eef3f8;color:#172033}.w{max-width:1050px;margin:auto;padding:28px}.hero,.card{background:#fff;border:1px solid #dbe3ef;border-radius:20px;padding:24px;margin-bottom:16px}.hero{background:linear-gradient(135deg,#0969c7,#173f70);color:#fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}.b{display:inline-block;background:#0969c7;color:#fff;text-decoration:none;padding:12px 15px;border-radius:10px;font-weight:800}</style></head><body><main class="w"><section class="hero"><h1>🏭 PRODUÇÃO VIP</h1><p>Central online da produção, setores e acompanhamento dos clientes.</p></section><div class="grid"><section class="card"><h2>📱 Acompanhamento</h2><p>Acompanhamento público de uma OS por token.</p><a class="b" href="acompanhamento.html">Abrir acompanhamento</a></section><section class="card"><h2>🏭 Setores</h2><p>Setores e extensões conectadas.</p><a class="b" href="setores.html">Abrir setores</a></section><section class="card"><h2>🔗 Links de produção</h2><p>OS publicadas e seus acompanhamentos.</p><a class="b" href="links.html">Abrir links</a></section></div><section class="card">🟢 Site hospedado no GitHub Pages. Dados e API no Supabase.</section></main></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Produção VIP — Central Online</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:#eef3f8;color:#172033}
+.top{background:#fff;border-bottom:1px solid #dbe3ef;position:sticky;top:0;z-index:5}.nav{max-width:1180px;margin:auto;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:15px}.brand{font-weight:950;font-size:20px;color:#0969c7}.live{font-size:12px;font-weight:800;color:#16803a;background:#eaf8ef;padding:8px 11px;border-radius:999px}
+.wrap{max-width:1180px;margin:auto;padding:25px 22px 45px}.hero{background:linear-gradient(135deg,#0969c7,#173f70);color:white;border-radius:22px;padding:30px;margin-bottom:20px;box-shadow:0 14px 35px #173f7025}.hero h1{margin:0 0 8px;font-size:32px}.hero p{margin:0;opacity:.9}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}.btn{border:0;border-radius:11px;padding:12px 16px;text-decoration:none;font-weight:850;cursor:pointer;display:inline-flex;align-items:center;gap:7px}.primary{background:#fff;color:#0756a1}.secondary{background:#ffffff22;color:#fff;border:1px solid #ffffff55}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}.card{background:#fff;border:1px solid #dbe3ef;border-radius:18px;padding:21px;box-shadow:0 7px 24px #1720330a}.icon{font-size:27px}.card h2{margin:9px 0 6px;font-size:19px}.card p{margin:0 0 17px;color:#667085;line-height:1.45}.card .btn{background:#0969c7;color:#fff}.wide{margin-top:16px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{background:#f8fafc;border:1px solid #e5eaf1;border-radius:13px;padding:15px}.stat small{display:block;color:#667085;font-size:11px;font-weight:800;text-transform:uppercase}.stat b{font-size:24px}.footer{margin-top:22px;text-align:center;color:#667085;font-size:12px}@media(max-width:650px){.nav{padding:12px 15px}.wrap{padding:18px 15px 35px}.hero h1{font-size:27px}.stats{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top"><nav class="nav"><div class="brand">🏭 PRODUÇÃO VIP</div><div class="live">● CENTRAL ONLINE</div></nav></header>
+<main class="wrap">
+<section class="hero">
+<h1>Central de Produção</h1>
+<p>Controle operacional, acompanhamento de clientes, setores e links de produção.</p>
+<div class="actions">
+<a class="btn primary" href="acompanhamento.html">📱 Acompanhamento</a>
+<a class="btn secondary" href="setores.html">🏭 Setores</a>
+<a class="btn secondary" href="links.html">🔗 Links de produção</a>
+</div>
+</section>
+<section class="grid">
+<article class="card"><div class="icon">📱</div><h2>Acompanhamento de OS</h2><p>Abra o acompanhamento público de uma ordem de serviço usando o token recebido.</p><a class="btn" href="acompanhamento.html">ABRIR ACOMPANHAMENTO →</a></article>
+<article class="card"><div class="icon">🏭</div><h2>Setores da produção</h2><p>Visualize os setores cadastrados e as extensões conectadas à central.</p><a class="btn" href="setores.html">VER SETORES →</a></article>
+<article class="card"><div class="icon">🔗</div><h2>Links de produção</h2><p>Consulte as OS publicadas e abra rapidamente seus links de acompanhamento.</p><a class="btn" href="links.html">VER LINKS →</a></article>
+</section>
+<section class="card wide">
+<h2>⚡ Ações rápidas</h2><p>Atalhos principais da central online.</p>
+<div class="actions">
+<a class="btn" style="background:#0969c7;color:#fff" href="acompanhamento.html">📲 Consultar OS</a>
+<a class="btn" style="background:#0969c7;color:#fff" href="setores.html">🧩 Extensões</a>
+<a class="btn" style="background:#0969c7;color:#fff" href="links.html">📋 OS publicadas</a>
+</div>
+</section>
+<section class="card wide"><h2>☁️ Conexão</h2><div class="stats"><div class="stat"><small>Frontend</small><b>ONLINE</b></div><div class="stat"><small>API</small><b>SUPABASE</b></div><div class="stat"><small>Banco</small><b>SUPABASE</b></div></div></section>
+<div class="footer">Produção VIP • Central Online</div>
+</main>
+</body></html>
