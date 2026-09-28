@@ -18,8 +18,8 @@
  async function demands({since}={}){const rows=[];let next={},until;for(let page=0;page<1000;page++){const params=new URLSearchParams({...next,...(since?{since}:{})});const r=await api('/demands'+(params.size?'?'+params:''));rows.push(...r.demands);until=r.until;if(!r.has_more)return {demands:rows,until};next={until,after:r.after,after_id:r.after_id}}throw Error('A sincronização precisa continuar. Tente novamente.');}
  function live(onChange,onStatus=()=>{}){
   const endpoint='wss://ugqxcarzyjmybyrpdrqx.supabase.co/realtime/v1/websocket?apikey=sb_publishable_sgOPJAIJdYl3PPBPh_zIwA_MSss6Scj&vsn=1.0.0';
-  let socket,timer,heartbeat,closed=false,attempt=0,ref=0,pending;
-  const notify=kind=>{clearTimeout(pending);pending=setTimeout(()=>onChange(kind),180)};
+  let socket,timer,heartbeat,closed=false,attempt=0,ref=0,pending,pendingKind;
+  const notify=kind=>{pendingKind=pendingKind&&pendingKind!==kind?"all":kind;clearTimeout(pending);pending=setTimeout(()=>{const k=pendingKind;pendingKind=null;onChange(k)},180)};
   function connect(){
    if(closed)return;onStatus('Conectando…');socket=new WebSocket(endpoint);
    socket.onopen=()=>{socket.send(JSON.stringify({topic:'realtime:pv-production',event:'phx_join',payload:{config:{broadcast:{ack:false,self:false},presence:{enabled:false},private:false}},ref:'join',join_ref:'join'}));heartbeat=setInterval(()=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({topic:'phoenix',event:'heartbeat',payload:{},ref:String(++ref)}))},20000)};
