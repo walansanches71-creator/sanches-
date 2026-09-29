@@ -3,8 +3,8 @@ const reply=(data,status=200)=>Response.json(data,{status,headers:{'cache-contro
 export async function onRequest({request,params}) {
  const path='/'+(Array.isArray(params.rest)?params.rest.join('/'):params.rest||'');
  const method=request.method;
- const read=method==='GET'&&(/^\/(me|demands|contacts|chat|chat\/inbox)$/.test(path)||/^\/demands\/[a-zA-Z0-9_-]+$/.test(path));
- const write=method==='POST'&&(/^\/(login|logout|chat)$/.test(path)||/^\/demands\/[a-zA-Z0-9_-]+\/route$/.test(path));
+ const read=method==='GET'&&(/^\/(me|demands|contacts|chat|chat\/inbox)$/.test(path)||/^\/demands\/[a-zA-Z0-9_.:-]+(?:\/visits)?$/.test(path));
+ const write=method==='POST'&&(/^\/(login|logout|chat)$/.test(path)||/^\/demands\/[a-zA-Z0-9_.:-]+\/(route|seen)$/.test(path));
  if(!read&&!write)return reply({error:'Operação indisponível na área do setor.'},403);
  const headers={'content-type':'application/json','x-pv-session':request.headers.get('x-pv-session')||''};
  const call=(p,options={})=>fetch(upstream+p,{...options,headers,signal:AbortSignal.timeout(25000)});
@@ -15,6 +15,7 @@ export async function onRequest({request,params}) {
    try{body=JSON.parse(raw)}catch{return reply({error:'Dados inválidos.'},400)}
    if(path==='/login')body={name:body.name,pin:body.pin,kind:'sector'};
    else if(path==='/chat')body={id:body.id,room:body.room,text:body.text};
+   else if(path.endsWith('/seen'))body={assignment_key:body.assignment_key};
    else body={target:body.target,status:body.status,complete:body.complete,expected_updated_at:body.expected_updated_at};
   }
   if(path!=='/login'){
