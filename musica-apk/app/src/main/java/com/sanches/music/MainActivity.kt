@@ -105,7 +105,7 @@ private fun themeColor(name: String): Color = when (name) {
 }
 private val themeOptions = listOf("Vermelho","Azul","Roxo","Verde","Laranja","Rosa","Ciano","Dourado")
 private val TextSoft = Color(0xFF8F8F8F)
-private val artworkCache = LruCache<Long, Bitmap>(48)
+private val artworkCache = LruCache<String, Bitmap>(96)
 
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
@@ -560,30 +560,47 @@ class MainActivity : ComponentActivity() {
             controller = c
             c.addListener(object : androidx.media3.common.Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    updateCurrentFromMediaItem(mediaItem)
+                    syncCurrentTrack(c)
                     position = 0L
                     duration = if (c.duration > 0) c.duration else 1L
                 }
 
+                override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                    syncCurrentTrack(c)
+                }
+
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == androidx.media3.common.Player.STATE_READY) {
-                        updateCurrentFromMediaItem(c.currentMediaItem)
+                        syncCurrentTrack(c)
                         duration = if (c.duration > 0) c.duration else 1L
                     }
                 }
             })
-            updateCurrentFromMediaItem(c.currentMediaItem)
+            syncCurrentTrack(c)
             observeController()
         }, mainExecutor)
+    }
+
+    private fun syncCurrentTrack(c: MediaController) {
+        val mediaItem = c.currentMediaItem
+        val mediaId = mediaItem?.mediaId?.toLongOrNull()
+        val byId = mediaId?.let { id ->
+            playbackQueue.firstOrNull { it.id == id } ?: songs.firstOrNull { it.id == id }
+        }
+        val byIndex = if (byId == null && c.currentMediaItemIndex >= 0) {
+            playbackQueue.getOrNull(c.currentMediaItemIndex)
+        } else null
+        val match = byId ?: byIndex
+        if (match != null) {
+            current = match
+        }
     }
 
     private fun updateCurrentFromMediaItem(mediaItem: MediaItem?) {
         val mediaId = mediaItem?.mediaId?.toLongOrNull() ?: return
         val match = playbackQueue.firstOrNull { it.id == mediaId }
             ?: songs.firstOrNull { it.id == mediaId }
-        if (match != null && current?.id != match.id) {
-            current = match
-        }
+        if (match != null) current = match
     }
 
     private fun observeController() {
@@ -599,7 +616,7 @@ class MainActivity : ComponentActivity() {
 
                     // A fila pode ser uma playlist. A faixa atual é identificada pelo mediaId,
                     // e a capa/nome são atualizados imediatamente na transição.
-                    updateCurrentFromMediaItem(c.currentMediaItem)
+                    syncCurrentTrack(c)
 
                 }
                 Thread.sleep(400)
@@ -1529,7 +1546,8 @@ private fun Artwork(song: Song, size: Dp) {
     val targetPx = (size.value * density).toInt().coerceIn(96, 960)
     val loaded by produceState<Bitmap?>(initialValue = song.art, song.id, targetPx) {
         if (value == null) {
-            value = artworkCache.get(song.id)
+            val cacheKey = song.id.toString() + ":" + targetPx
+            value = artworkCache.get(cacheKey)
             if (value == null) {
                 value = withContext(Dispatchers.IO) {
                     runCatching {
@@ -1577,7 +1595,7 @@ private fun Artwork(song: Song, size: Dp) {
                         }
                         result
                     }.getOrNull()
-                }?.also { artworkCache.put(song.id, it) }
+                }?.also { artworkCache.put(cacheKey, it) }
             }
         }
     }
