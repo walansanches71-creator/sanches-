@@ -574,39 +574,18 @@ private fun SanchesTheme(content: @Composable () -> Unit) {
 
 @Composable
 private fun Home(
-    songs: List<Song>,
-    current: Song?,
-    playing: Boolean,
-    query: String,
-    selectedIds: Set<Long>,
-    favorites: Set<Long>,
-    playlists: List<Playlist>,
-    historyIds: List<Long>,
-    playCounts: Map<Long, Int>,
-    showSettings: Boolean,
-    onQuery: (String) -> Unit,
-    onSong: (Song) -> Unit,
-    onMiniOpen: () -> Unit,
-    onToggle: () -> Unit,
-    onSelect: (Long) -> Unit,
-    onDelete: () -> Unit,
-    onClearSelection: () -> Unit,
-    onSettings: (Boolean) -> Unit,
-    onToggleFavorite: (Long) -> Unit,
-    onOpenPlaylistPicker: (Long) -> Unit,
-    onRemoveFromPlaylist: (Long, Long) -> Unit,
-    onDeleteSong: (Song) -> Unit,
-    onCreatePlaylist: () -> Unit,
-    onEditPlaylist: (Long) -> Unit,
-    onDeletePlaylist: (Long) -> Unit,
-    onYoutube: () -> Unit,
-    onRefresh: () -> Unit,
-    onPickCover: () -> Unit,
-    onQueue: () -> Unit,
-    onSleep: () -> Unit,
-    onEqualizer: () -> Unit,
-    onBackup: () -> Unit,
-    onDuplicates: () -> Unit,
+    songs: List<Song>, current: Song?, playing: Boolean, query: String,
+    selectedIds: Set<Long>, favorites: Set<Long>, playlists: List<Playlist>,
+    historyIds: List<Long>, playCounts: Map<Long, Int>, showSettings: Boolean,
+    onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit,
+    onToggle: () -> Unit, onSelect: (Long) -> Unit, onDelete: () -> Unit,
+    onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit,
+    onToggleFavorite: (Long) -> Unit, onOpenPlaylistPicker: (Long) -> Unit,
+    onRemoveFromPlaylist: (Long, Long) -> Unit, onDeleteSong: (Song) -> Unit,
+    onCreatePlaylist: () -> Unit, onEditPlaylist: (Long) -> Unit,
+    onDeletePlaylist: (Long) -> Unit, onYoutube: () -> Unit, onRefresh: () -> Unit,
+    onPickCover: () -> Unit, onQueue: () -> Unit, onSleep: () -> Unit,
+    onEqualizer: () -> Unit, onBackup: () -> Unit, onDuplicates: () -> Unit,
     onEditSong: (Long) -> Unit
 ) {
     var artistFilter by remember { mutableStateOf<String?>(null) }
@@ -618,10 +597,7 @@ private fun Home(
 
     val filtered = remember(songs, query, artistFilter, favoritesOnly, activePlaylistId, playlists, favorites, smartFilter, historyIds, playCounts) {
         songs.filter { song ->
-            val textMatch = query.isBlank() ||
-                song.title.contains(query, true) ||
-                song.artist.contains(query, true) ||
-                song.album.contains(query, true)
+            val textMatch = query.isBlank() || song.title.contains(query, true) || song.artist.contains(query, true) || song.album.contains(query, true)
             val artistMatch = artistFilter == null || song.artist.equals(artistFilter, true)
             val favoriteMatch = !favoritesOnly || favorites.contains(song.id)
             val playlistMatch = activePlaylist == null || activePlaylist.songIds.contains(song.id)
@@ -633,230 +609,160 @@ private fun Home(
             textMatch && artistMatch && favoriteMatch && playlistMatch && smartMatch
         }
     }
-
     val artists = remember(songs) {
-        songs.map { it.artist.trim() }
-            .filter { it.isNotBlank() && it != "Artista desconhecido" }
-            .distinct()
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+        songs.map { it.artist.trim() }.filter { it.isNotBlank() && it != "Artista desconhecido" }
+            .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
-    val albums = remember(songs) {
-        songs.map { it.album }.filter { it.isNotBlank() }.distinct().size
-    }
+    val albums = remember(songs) { songs.map { it.album }.filter { it.isNotBlank() }.distinct().size }
 
-    Box(
-        Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(Color(0xFF050505), Color(0xFF0B0B0B), Color(0xFF180607)))
-        )
-    ) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("SANCHES", color = Red, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-                    Text("Music", color = Red, fontSize = 30.sp, fontWeight = FontWeight.Black)
-                }
-                Surface(shape = CircleShape, color = Panel2, modifier = Modifier.size(46.dp)) {
-                    IconButton(onClick = { onSettings(true) }) {
-                        Icon(Icons.Default.Settings, "Configurações", tint = Red)
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF050505), Color(0xFF0B0B0B), Color(0xFF180607))))) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(bottom = if (current != null) 88.dp else 18.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("SANCHES", color = Red, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
+                        Text("Music", color = Red, fontSize = 30.sp, fontWeight = FontWeight.Black)
+                    }
+                    Surface(shape = CircleShape, color = Panel2, modifier = Modifier.size(46.dp)) {
+                        IconButton(onClick = { onSettings(true) }) { Icon(Icons.Default.Settings, "Configurações", tint = Red) }
                     }
                 }
             }
-
-            SearchBar(query, onQuery)
-
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                QuickChip("FAIXAS", songs.size.toString(), Red)
-                QuickChip("BANDAS", artists.size.toString(), Red)
-                QuickChip("ÁLBUNS", albums.toString(), Red)
+            item { SearchBar(query, onQuery) }
+            item {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    QuickChip("FAIXAS", songs.size.toString(), Red)
+                    QuickChip("BANDAS", artists.size.toString(), Red)
+                    QuickChip("ÁLBUNS", albums.toString(), Red)
+                }
             }
-
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = !favoritesOnly && activePlaylistId == null,
-                    onClick = { favoritesOnly = false; activePlaylistId = null },
-                    label = { Text("Todas") }
-                )
-                FilterChip(
-                    selected = favoritesOnly,
-                    onClick = { favoritesOnly = !favoritesOnly; activePlaylistId = null },
-                    label = { Text("♥ Favoritos") }
-                )
-                FilterChip(
-                    selected = activePlaylistId != null,
-                    onClick = {
-                        if (playlists.isNotEmpty()) {
-                            activePlaylistId = playlists.first().id
-                            favoritesOnly = false
-                        }
-                    },
-                    label = { Text("♫ Playlists") }
-                )
-            }
-
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                FilterChip(selected = smartFilter == "all", onClick = { smartFilter = "all" }, label = { Text("Biblioteca") })
-                FilterChip(selected = smartFilter == "history", onClick = { smartFilter = "history" }, label = { Text("Histórico") })
-                FilterChip(selected = smartFilter == "top", onClick = { smartFilter = "top" }, label = { Text("Mais tocadas") })
-                TextButton(onClick = onQueue) { Text("Fila", color = Red) }
-                TextButton(onClick = onSleep) { Text("Timer", color = Red) }
-                TextButton(onClick = onEqualizer) { Text("EQ", color = Red) }
-                TextButton(onClick = onBackup) { Text("Backup", color = Red) }
-                TextButton(onClick = onDuplicates) { Text("Duplicadas", color = Red) }
-            }
-
-            if (artists.isNotEmpty()) {
-                Text(
-                    "Bandas e artistas",
-                    color = Red,
-                    modifier = Modifier.padding(start = 22.dp, top = 16.dp),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            item {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !favoritesOnly && activePlaylistId == null, onClick = { favoritesOnly = false; activePlaylistId = null }, label = { Text("Todas") })
+                    FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = !favoritesOnly; activePlaylistId = null }, label = { Text("♥ Favoritos") })
                     FilterChip(
-                        selected = artistFilter == null,
-                        onClick = { artistFilter = null },
-                        label = { Text("Todas") }
+                        selected = activePlaylistId != null,
+                        onClick = {
+                            if (playlists.isNotEmpty()) {
+                                activePlaylistId = if (activePlaylistId == null) playlists.first().id else null
+                                favoritesOnly = false
+                            }
+                        },
+                        label = { Text("♫ Playlists") }
                     )
-                    artists.forEach { artist ->
-                        FilterChip(
-                            selected = artistFilter == artist,
-                            onClick = { artistFilter = if (artistFilter == artist) null else artist },
-                            label = { Text(artist, maxLines = 1) }
-                        )
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    FilterChip(selected = smartFilter == "all", onClick = { smartFilter = "all" }, label = { Text("Biblioteca") })
+                    FilterChip(selected = smartFilter == "history", onClick = { smartFilter = "history" }, label = { Text("Histórico") })
+                    FilterChip(selected = smartFilter == "top", onClick = { smartFilter = "top" }, label = { Text("Mais tocadas") })
+                    TextButton(onClick = onQueue) { Text("Fila", color = Red) }
+                    TextButton(onClick = onSleep) { Text("Timer", color = Red) }
+                    TextButton(onClick = onEqualizer) { Text("EQ", color = Red) }
+                    TextButton(onClick = onBackup) { Text("Backup", color = Red) }
+                    TextButton(onClick = onDuplicates) { Text("Duplicadas", color = Red) }
+                }
+            }
+            if (artists.isNotEmpty()) {
+                item { Text("Bandas e artistas", color = Red, modifier = Modifier.padding(start = 22.dp, top = 8.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+                item {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = artistFilter == null, onClick = { artistFilter = null }, label = { Text("Todas") })
+                        artists.forEach { artist ->
+                            FilterChip(selected = artistFilter == artist, onClick = { artistFilter = if (artistFilter == artist) null else artist }, label = { Text(artist, maxLines = 1) })
+                        }
                     }
                 }
             }
-
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    when {
-                        activePlaylist != null -> activePlaylist.name
-                        favoritesOnly -> "Favoritos"
-                        query.isBlank() -> "Sua biblioteca"
-                        else -> "Resultados"
-                    },
-                    color = Red,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.weight(1f))
-                Text(filtered.size.toString(), color = TextSoft, fontSize = 14.sp)
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        when {
+                            activePlaylist != null -> activePlaylist.name
+                            favoritesOnly -> "Favoritos"
+                            query.isBlank() -> "Sua biblioteca"
+                            else -> "Resultados"
+                        },
+                        color = Red, fontSize = 22.sp, fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(filtered.size.toString(), color = TextSoft, fontSize = 14.sp)
+                }
             }
-
             if (playlists.isNotEmpty()) {
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    playlists.forEach { playlist ->
-                        PlaylistCard(
-                            playlist = playlist,
-                            selected = activePlaylistId == playlist.id,
-                            onClick = {
-                                activePlaylistId = if (activePlaylistId == playlist.id) null else playlist.id
-                                favoritesOnly = false
-                            },
-                            onEdit = { onEditPlaylist(playlist.id) }
-                        )
+                item {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        playlists.forEach { playlist ->
+                            PlaylistCard(
+                                playlist = playlist,
+                                selected = activePlaylistId == playlist.id,
+                                onClick = {
+                                    activePlaylistId = if (activePlaylistId == playlist.id) null else playlist.id
+                                    favoritesOnly = false
+                                },
+                                onEdit = { onEditPlaylist(playlist.id) }
+                            )
+                        }
+                        AddPlaylistCard(onCreatePlaylist)
                     }
-                    AddPlaylistCard(onCreatePlaylist)
                 }
             } else {
-                OutlinedButton(
-                    onClick = onCreatePlaylist,
-                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 5.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Red)
-                ) {
-                    Icon(Icons.Default.Add, null, tint = Red)
-                    Spacer(Modifier.width(7.dp))
-                    Text("Criar playlist", color = Red)
-                }
-            }
-
-            if (current != null && selectedIds.isEmpty()) NowCard(current, playing, onMiniOpen, onToggle)
-
-            if (selectedIds.isNotEmpty()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(selectedIds.size.toString() + " selecionada(s)", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    IconButton(onClearSelection) { Icon(Icons.Default.Close, "Cancelar", tint = TextSoft) }
-                    FilledIconButton(
-                        onClick = onDelete,
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)
-                    ) {
-                        Icon(Icons.Default.Delete, "Apagar")
+                item {
+                    OutlinedButton(onClick = onCreatePlaylist, modifier = Modifier.padding(horizontal = 22.dp, vertical = 5.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Red)) {
+                        Icon(Icons.Default.Add, null, tint = Red)
+                        Spacer(Modifier.width(7.dp))
+                        Text("Criar playlist", color = Red)
                     }
                 }
             }
-
-            LazyColumn(
-                Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 110.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp)
-            ) {
-                items(filtered, key = { it.id }) { song ->
-                    TrackCard(
-                        song = song,
-                        active = current?.id == song.id && playing,
-                        selected = selectedIds.contains(song.id),
-                        selectionMode = selectedIds.isNotEmpty(),
-                        favorite = favorites.contains(song.id),
-                        onClick = onSong,
-                        onSelect = onSelect,
-                        onMore = { menuSongId = song.id }
-                    )
+            if (current != null && selectedIds.isEmpty()) item { NowCard(current, playing, onMiniOpen, onToggle) }
+            if (selectedIds.isNotEmpty()) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(selectedIds.size.toString() + " selecionada(s)", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClearSelection) { Icon(Icons.Default.Close, "Cancelar", tint = TextSoft) }
+                        FilledIconButton(onClick = onDelete, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)) { Icon(Icons.Default.Delete, "Apagar") }
+                    }
                 }
             }
+            items(filtered, key = { it.id }) { song ->
+                TrackCard(
+                    song = song, active = current?.id == song.id && playing,
+                    selected = selectedIds.contains(song.id), selectionMode = selectedIds.isNotEmpty(),
+                    favorite = favorites.contains(song.id), onClick = onSong, onSelect = onSelect,
+                    onMore = { menuSongId = song.id }
+                )
+            }
+        }
 
-            if (current != null) CompactPlayer(current, playing, onMiniOpen, onToggle)
+        if (current != null) {
+            Surface(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), color = Color(0xFF101010), shadowElevation = 12.dp) {
+                CompactPlayer(current, playing, onMiniOpen, onToggle)
+            }
         }
 
         FloatingActionButton(
             onClick = onYoutube,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 72.dp),
-            containerColor = Red,
-            contentColor = Color.White
-        ) {
-            Icon(Icons.Default.Download, "Baixar música")
-        }
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = if (current != null) 82.dp else 18.dp),
+            containerColor = Red, contentColor = Color.White
+        ) { Icon(Icons.Default.Download, "Abrir YouTube") }
 
-        if (showSettings) SettingsDialog(
-            onClose = { onSettings(false) },
-            onRescan = { onRefresh(); onSettings(false) }
-        )
+        if (showSettings) SettingsDialog(onClose = { onSettings(false) }, onRescan = { onRefresh(); onSettings(false) })
 
         val menuSong = songs.firstOrNull { it.id == menuSongId }
         if (menuSong != null) {
             TrackMenuDialog(
-                song = menuSong,
-                favorite = favorites.contains(menuSong.id),
-                canRemoveFromPlaylist = activePlaylistId != null,
+                song = menuSong, favorite = favorites.contains(menuSong.id), canRemoveFromPlaylist = activePlaylistId != null,
                 onDismiss = { menuSongId = null },
                 onFavorite = { onToggleFavorite(menuSong.id); menuSongId = null },
                 onPlaylist = { onOpenPlaylistPicker(menuSong.id); menuSongId = null },
-                onRemoveFromPlaylist = {
-                    activePlaylistId?.let { onRemoveFromPlaylist(it, menuSong.id) }
-                    menuSongId = null
-                },
+                onRemoveFromPlaylist = { activePlaylistId?.let { onRemoveFromPlaylist(it, menuSong.id) }; menuSongId = null },
                 onEditSong = { onEditSong(menuSong.id); menuSongId = null },
                 onDelete = { onDeleteSong(menuSong); menuSongId = null }
             )
