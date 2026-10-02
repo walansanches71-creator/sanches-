@@ -86,8 +86,28 @@ data class Playlist(
 private val Ink = Color(0xFF050505)
 private val Panel = Color(0xFF111111)
 private val Panel2 = Color(0xFF191919)
-private val Red = Color(0xFFE50914)
-private val RedBright = Color(0xFFFF3340)
+private val accentColorState = mutableStateOf(Color(0xFFE50914))
+private val Red: Color get() = accentColorState.value
+private val RedBright: Color
+    get() = Color(
+        Red.red + (1f - Red.red) * 0.25f,
+        Red.green + (1f - Red.green) * 0.25f,
+        Red.blue + (1f - Red.blue) * 0.25f,
+        1f
+    )
+
+private fun themeColor(name: String): Color = when (name) {
+    "Azul" -> Color(0xFF2196F3)
+    "Roxo" -> Color(0xFF9C27B0)
+    "Verde" -> Color(0xFF00C853)
+    "Laranja" -> Color(0xFFFF6D00)
+    "Rosa" -> Color(0xFFE91E63)
+    "Ciano" -> Color(0xFF00BCD4)
+    "Dourado" -> Color(0xFFFFB300)
+    else -> Color(0xFFE50914)
+}
+
+private val themeOptions = listOf("Vermelho", "Azul", "Roxo", "Verde", "Laranja", "Rosa", "Ciano", "Dourado")
 private val TextSoft = Color(0xFF8F8F8F)
 private val artworkCache = LruCache<Long, Bitmap>(48)
 
@@ -120,7 +140,6 @@ class MainActivity : ComponentActivity() {
     private var showQueue by mutableStateOf(false)
     private var showSleepTimer by mutableStateOf(false)
     private var showEqualizer by mutableStateOf(false)
-    private var showMixer by mutableStateOf(false)
     private var showHearing by mutableStateOf(false)
     private var showStats by mutableStateOf(false)
     private var hearingEnabled by mutableStateOf(true)
@@ -168,6 +187,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadSavedData()
+        accentColorState.value = themeColor(prefs.getString("theme_color", "Vermelho") ?: "Vermelho")
         hearingEnabled = prefs.getBoolean("hearing_enabled", true)
         hearingThreshold = prefs.getFloat("hearing_threshold", 0.95f).coerceIn(0.90f, 1.0f)
         setContent {
@@ -227,7 +247,6 @@ class MainActivity : ComponentActivity() {
                         onQueue = { showQueue = true },
                         onSleep = { showSleepTimer = true },
                         onEqualizer = { showEqualizer = true },
-                        onMixer = { showMixer = true },
                         onHearing = { showHearing = true },
                         onStats = { showStats = true },
                         onSmartQueue = { smartQueue() },
@@ -284,7 +303,6 @@ class MainActivity : ComponentActivity() {
                 if (showQueue) QueueDialog(playbackQueue.ifEmpty { songs }, current, { showQueue = false }) { playSong(it, playbackQueue.ifEmpty { songs }); showQueue = false }
                 if (showSleepTimer) SleepTimerDialog(sleepUntil, { showSleepTimer = false }) { setSleepTimer(it); showSleepTimer = false }
                 if (showEqualizer) EqualizerDialog({ showEqualizer = false }) { applyEqualizerPreset(it) }
-                if (showMixer) MixerDialog({ showMixer = false }) { bass, bands -> applyMixer(bass, bands) }
                 if (showHearing) HearingDialog(hearingEnabled, hearingThreshold, { showHearing = false }) { enabled, threshold ->
                     hearingEnabled = enabled
                     hearingThreshold = threshold
@@ -387,16 +405,6 @@ class MainActivity : ComponentActivity() {
         sleepUntil = System.currentTimeMillis() + minutes * 60_000L
         sleepHandler.postDelayed({ controller?.pause(); sleepUntil = 0L }, minutes * 60_000L)
         Toast.makeText(this, "Sleep Timer: $minutes min", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun applyMixer(bass: Int, bands: FloatArray) {
-        startService(
-            Intent(this, MusicService::class.java)
-                .setAction("com.sanches.music.EQ_BANDS")
-                .putExtra("bass", bass)
-                .putExtra("bands", bands)
-        )
-        Toast.makeText(this, "Mixer aplicado", Toast.LENGTH_SHORT).show()
     }
 
     private fun smartQueue() {
@@ -746,8 +754,8 @@ private fun SanchesTheme(content: @Composable () -> Unit) {
         colorScheme = darkColorScheme(
             background = Ink,
             surface = Panel,
-            primary = Red,
-            secondary = Red,
+            primary = accentColorState.value,
+            secondary = accentColorState.value,
             onBackground = Color.White,
             onSurface = Color.White
         ),
@@ -769,7 +777,7 @@ private fun Home(
     onDeletePlaylist: (Long) -> Unit, onRefresh: () -> Unit,
     onClearHistory: () -> Unit, onClearPlayCounts: () -> Unit,
     onPickCover: () -> Unit, onQueue: () -> Unit, onSleep: () -> Unit,
-    onEqualizer: () -> Unit, onMixer: () -> Unit, onHearing: () -> Unit, onStats: () -> Unit, onSmartQueue: () -> Unit,
+    onEqualizer: () -> Unit, onHearing: () -> Unit, onStats: () -> Unit, onSmartQueue: () -> Unit,
     onBackup: () -> Unit, onDuplicates: () -> Unit,
     onEditSong: (Long) -> Unit
 ) {
@@ -777,6 +785,7 @@ private fun Home(
     var activePlaylistId by remember { mutableStateOf<Long?>(null) }
     var menuSongId by remember { mutableStateOf<Long?>(null) }
     var smartFilter by remember { mutableStateOf("all") }
+    var showTheme by remember { mutableStateOf(false) }
     val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
 
     val filtered = remember(songs, query, favoritesOnly, activePlaylistId, playlists, favorites, smartFilter, historyIds, playCounts) {
@@ -926,7 +935,17 @@ private fun Home(
             onRescan = { onRefresh(); onSettings(false) },
             onClearHistory = onClearHistory,
             onClearPlayCounts = onClearPlayCounts,
-            onMixer = onMixer, onHearing = onHearing, onStats = onStats, onSmartQueue = onSmartQueue
+            onTheme = onTheme, onHearing = onHearing, onStats = onStats, onSmartQueue = onSmartQueue
+        )
+
+        if (showTheme) ThemeDialog(
+            selected = prefs.getString("theme_color", "Vermelho") ?: "Vermelho",
+            onDismiss = { showTheme = false },
+            onSelect = { name ->
+                accentColorState.value = themeColor(name)
+                prefs.edit().putString("theme_color", name).apply()
+                showTheme = false
+            }
         )
 
         val menuSong = songs.firstOrNull { it.id == menuSongId }
@@ -950,7 +969,7 @@ private fun SettingsDialog(
     onRescan: () -> Unit,
     onClearHistory: () -> Unit,
     onClearPlayCounts: () -> Unit,
-    onMixer: () -> Unit,
+    onTheme: () -> Unit,
     onHearing: () -> Unit,
     onStats: () -> Unit,
     onSmartQueue: () -> Unit
@@ -994,10 +1013,10 @@ private fun SettingsDialog(
                     Text("Limpar histórico", color = Red)
                 }
 
-                OutlinedButton(onClick = onMixer, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Tune, null, tint = Red)
+                OutlinedButton(onClick = onTheme, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Palette, null, tint = Red)
                     Spacer(Modifier.width(8.dp))
-                    Text("Central de áudio / Mixer", color = Red)
+                    Text("Tema / Cor do aplicativo", color = Red)
                 }
 
                 OutlinedButton(onClick = onHearing, modifier = Modifier.fillMaxWidth()) {
@@ -1031,26 +1050,42 @@ private fun SettingsDialog(
 
 
 @Composable
-private fun MixerDialog(onDismiss: () -> Unit, onApply: (Int, FloatArray) -> Unit) {
-    var bass by remember { mutableFloatStateOf(500f) }
-    val values = remember { mutableStateListOf(0f, 0f, 0f, 0f, 0f) }
-    val labels = listOf("60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz")
+private fun ThemeDialog(
+    selected: String,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    val colors = listOf(
+        "Vermelho" to Color(0xFFE50914),
+        "Azul" to Color(0xFF2196F3),
+        "Roxo" to Color(0xFF9C27B0),
+        "Verde" to Color(0xFF00C853),
+        "Laranja" to Color(0xFFFF6D00),
+        "Rosa" to Color(0xFFE91E63),
+        "Ciano" to Color(0xFF00BCD4),
+        "Dourado" to Color(0xFFFFB300)
+    )
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Panel,
-        title = { Text("Central de áudio", color = Red, fontWeight = FontWeight.Bold) },
+        title = { Text("Tema do aplicativo", color = Red, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Graves", color = TextSoft, fontSize = 11.sp)
-                Slider(bass, { bass = it }, valueRange = 0f..1000f, colors = SliderDefaults.colors(thumbColor = Red, activeTrackColor = Red))
-                labels.forEachIndexed { i, label ->
-                    Text(label, color = TextSoft, fontSize = 10.sp)
-                    Slider(values[i], { values[i] = it }, valueRange = -12f..12f, colors = SliderDefaults.colors(thumbColor = Red, activeTrackColor = Red))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Escolha a cor principal do Sanches Music. O vermelho é o padrão.", color = TextSoft, fontSize = 12.sp)
+                colors.forEach { (name, color) ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onSelect(name) }.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(Modifier.size(30.dp).clip(CircleShape).background(color))
+                        Spacer(Modifier.width(12.dp))
+                        Text(name, color = Color.White, modifier = Modifier.weight(1f))
+                        if (name == selected) Icon(Icons.Default.Check, null, tint = color)
+                    }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onApply(bass.toInt(), values.toFloatArray()); onDismiss() }) { Text("Aplicar", color = Red) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
     )
 }
 
@@ -1385,7 +1420,7 @@ private fun PlaylistCover(uriString: String?, size: Dp) {
     } else {
         Box(
             Modifier.size(size).clip(RoundedCornerShape(15.dp)).background(
-                Brush.linearGradient(listOf(Color(0xFF35070A), Red))
+                Brush.linearGradient(listOf(Red.copy(alpha = 0.28f), Red))
             ),
             contentAlignment = Alignment.Center
         ) {
@@ -1413,7 +1448,7 @@ private fun TrackCard(
                 onClick = { if (selectionMode) onSelect(song.id) else onClick(song) },
                 onLongClick = { onSelect(song.id) }
             )
-            .background(if (selected) Color(0xFF3A0B0F) else if (active) Color(0xFF21090B) else Color.Transparent)
+            .background(if (selected) Red.copy(alpha = 0.22f) else if (active) Red.copy(alpha = 0.12f) else Color.Transparent)
             .padding(9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1506,7 +1541,7 @@ private fun FullPlayer(
     repeatMode: Int,
     onFavorite: () -> Unit
 ) {
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF30070A), Ink, Color(0xFF080808))))) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Red.copy(alpha = 0.30f), Ink, Color(0xFF080808))))) {
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp).navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onBack) { Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(32.dp)) }
@@ -1629,7 +1664,7 @@ private fun Artwork(song: Song, size: Dp) {
     } else {
         Box(
             Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(
-                Brush.linearGradient(listOf(Color(0xFF5C0006), RedBright))
+                Brush.linearGradient(listOf(Red.copy(alpha = 0.45f), RedBright))
             ),
             contentAlignment = Alignment.Center
         ) {
