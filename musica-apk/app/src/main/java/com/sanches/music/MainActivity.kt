@@ -478,8 +478,8 @@ class MainActivity : ComponentActivity() {
                         val rawArtist = c.getString(artistCol)
                         result += Song(id, c.getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Sem título",
                             if (rawArtist.isNullOrBlank() || rawArtist == "<unknown>") "Artista desconhecido" else rawArtist,
-                            c.getLong(albumIdCol),
-                            c.getString(albumCol) ?: "", uri, null)
+                            c.getString(albumCol) ?: "",
+                            c.getLong(albumIdCol), uri, null)
                     }
                 }
             }.onFailure { e -> runOnUiThread { Toast.makeText(this, "Erro ao ler músicas: ${e.message ?: "desconhecido"}", Toast.LENGTH_LONG).show() } }
