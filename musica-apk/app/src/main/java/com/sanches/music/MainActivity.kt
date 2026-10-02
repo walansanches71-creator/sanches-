@@ -38,6 +38,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -155,8 +156,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val coverPickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) pendingPlaylistCover = uri
+    private val coverPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            pendingPlaylistCover = copyPlaylistCoverToAppStorage(uri)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -287,6 +296,27 @@ class MainActivity : ComponentActivity() {
         }
         requestAudioPermission()
         connectController()
+    }
+
+    private fun copyPlaylistCoverToAppStorage(source: Uri): Uri? {
+        return runCatching {
+            val dir = java.io.File(filesDir, "playlist_covers").apply { mkdirs() }
+            val extension = when (contentResolver.getType(source)?.lowercase()) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val target = java.io.File(
+                dir,
+                "cover_" + System.currentTimeMillis() + "_" + kotlin.math.abs(source.toString().hashCode()) + "." + extension
+            )
+            contentResolver.openInputStream(source)?.use { input ->
+                java.io.FileOutputStream(target).use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return@runCatching null
+            Uri.fromFile(target)
+        }.getOrNull()
     }
 
     private fun loadSavedData() {
@@ -727,17 +757,15 @@ private fun Home(
     onEqualizer: () -> Unit, onBackup: () -> Unit, onDuplicates: () -> Unit,
     onEditSong: (Long) -> Unit
 ) {
-    var artistFilter by remember { mutableStateOf<String?>(null) }
     var favoritesOnly by remember { mutableStateOf(false) }
     var activePlaylistId by remember { mutableStateOf<Long?>(null) }
     var menuSongId by remember { mutableStateOf<Long?>(null) }
     var smartFilter by remember { mutableStateOf("all") }
     val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
 
-    val filtered = remember(songs, query, artistFilter, favoritesOnly, activePlaylistId, playlists, favorites, smartFilter, historyIds, playCounts) {
+    val filtered = remember(songs, query, favoritesOnly, activePlaylistId, playlists, favorites, smartFilter, historyIds, playCounts) {
         songs.filter { song ->
             val textMatch = query.isBlank() || song.title.contains(query, true) || song.artist.contains(query, true) || song.album.contains(query, true)
-            val artistMatch = artistFilter == null || song.artist.equals(artistFilter, true)
             val favoriteMatch = !favoritesOnly || favorites.contains(song.id)
             val playlistMatch = activePlaylist == null || activePlaylist.songIds.contains(song.id)
             val smartMatch = when (smartFilter) {
@@ -745,12 +773,8 @@ private fun Home(
                 "top" -> (playCounts[song.id] ?: 0) > 0
                 else -> true
             }
-            textMatch && artistMatch && favoriteMatch && playlistMatch && smartMatch
+            textMatch && favoriteMatch && playlistMatch && smartMatch
         }
-    }
-    val artists = remember(songs) {
-        songs.map { it.artist.trim() }.filter { it.isNotBlank() && it != "Artista desconhecido" }
-            .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
     val albums = remember(songs) { songs.map { it.album }.filter { it.isNotBlank() }.distinct().size }
 
@@ -775,7 +799,6 @@ private fun Home(
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     QuickChip("FAIXAS", songs.size.toString(), Red)
-                    QuickChip("BANDAS", artists.size.toString(), Red)
                     QuickChip("ÁLBUNS", albums.toString(), Red)
                 }
             }
@@ -807,17 +830,6 @@ private fun Home(
                     TextButton(onClick = onDuplicates) { Text("Duplicadas", color = Red) }
                 }
             }
-            if (artists.isNotEmpty()) {
-                item { Text("Bandas e artistas", color = Red, modifier = Modifier.padding(start = 22.dp, top = 8.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                item {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = artistFilter == null, onClick = { artistFilter = null }, label = { Text("Todas") })
-                        artists.forEach { artist ->
-                            FilterChip(selected = artistFilter == artist, onClick = { artistFilter = if (artistFilter == artist) null else artist }, label = { Text(artist, maxLines = 1) })
-                        }
-                    }
-                }
-            }
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -835,8 +847,12 @@ private fun Home(
             }
             if (playlists.isNotEmpty()) {
                 item {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        playlists.forEach { playlist ->
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        contentPadding = PaddingValues(horizontal = 22.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(playlists, key = { it.id }) { playlist ->
                             PlaylistCard(
                                 playlist = playlist,
                                 selected = activePlaylistId == playlist.id,
@@ -847,7 +863,7 @@ private fun Home(
                                 onEdit = { onEditPlaylist(playlist.id) }
                             )
                         }
-                        AddPlaylistCard(onCreatePlaylist)
+                        item { AddPlaylistCard(onCreatePlaylist) }
                     }
                 }
             } else {
