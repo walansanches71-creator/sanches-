@@ -339,10 +339,14 @@ class MainActivity : ComponentActivity() {
                 val ids = mutableSetOf<Long>()
                 val songsArray = o.optJSONArray("songs") ?: JSONArray()
                 for (j in 0 until songsArray.length()) ids += songsArray.getLong(j)
-                val cover = if (o.isNull("cover")) null else o.optString("cover", null)
+                var cover = if (o.isNull("cover")) null else o.optString("cover", null)
+                if (!cover.isNullOrBlank() && cover.startsWith("content://")) {
+                    copyPlaylistCoverToAppStorage(Uri.parse(cover))?.toString()?.let { cover = it }
+                }
                 list += Playlist(o.getLong("id"), o.getString("name"), cover, ids)
             }
             playlists = list
+            persistPlaylists()
         }
     }
 
@@ -823,11 +827,6 @@ private fun Home(
                     FilterChip(selected = smartFilter == "all", onClick = { smartFilter = "all" }, label = { Text("Biblioteca") })
                     FilterChip(selected = smartFilter == "history", onClick = { smartFilter = "history" }, label = { Text("Histórico") })
                     FilterChip(selected = smartFilter == "top", onClick = { smartFilter = "top" }, label = { Text("Mais tocadas") })
-                    TextButton(onClick = onQueue) { Text("Fila", color = Red) }
-                    TextButton(onClick = onSleep) { Text("Timer", color = Red) }
-                    TextButton(onClick = onEqualizer) { Text("EQ", color = Red) }
-                    TextButton(onClick = onBackup) { Text("Backup", color = Red) }
-                    TextButton(onClick = onDuplicates) { Text("Duplicadas", color = Red) }
                 }
             }
             item {
@@ -1277,7 +1276,18 @@ private fun PlaylistCover(uriString: String?, size: Dp) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 if (uriString.isNullOrBlank()) null
-                else context.contentResolver.openInputStream(Uri.parse(uriString))?.use { BitmapFactory.decodeStream(it) }
+                else {
+                    val uri = Uri.parse(uriString)
+                    if (uri.scheme == "file") {
+                        java.io.FileInputStream(java.io.File(uri.path ?: "")).use {
+                            BitmapFactory.decodeStream(it)
+                        }
+                    } else {
+                        context.contentResolver.openInputStream(uri)?.use {
+                            BitmapFactory.decodeStream(it)
+                        }
+                    }
+                }
             }.getOrNull()
         }
     }
