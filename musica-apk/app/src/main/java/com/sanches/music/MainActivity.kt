@@ -2,6 +2,7 @@ package com.sanches.music
 
 import android.Manifest
 import android.app.DownloadManager
+import android.app.PictureInPictureParams
 import android.content.ComponentName
 import android.content.ContentUris
 import android.content.Context
@@ -15,8 +16,10 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.content.res.Configuration
 import android.provider.MediaStore
 import android.widget.Toast
+import android.media.MediaMetadataRetriever
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -52,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import android.util.LruCache
+import android.util.Rational
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -106,6 +110,7 @@ class MainActivity : ComponentActivity() {
     private var showCreatePlaylist by mutableStateOf(false)
     private var showPlaylistPicker by mutableStateOf(false)
     private var showYoutube by mutableStateOf(false)
+    private var youtubePip by mutableStateOf(false)
     private var editingPlaylistId by mutableStateOf<Long?>(null)
     private var pendingPlaylistCover by mutableStateOf<Uri?>(null)
     private var songForPlaylist by mutableStateOf<Long?>(null)
@@ -124,7 +129,12 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) loadSongs()
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
+
+    private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val deleteLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -246,9 +256,10 @@ class MainActivity : ComponentActivity() {
                 if (editorSong != null) SongEditorDialog(editorSong, { showEditorSongId = null }) { t, a, al -> editSong(editorSong, t, a, al) }
 
                 if (showYoutube) {
-                    YoutubeDialog(
+                    YoutubeScreen(
+                        inPip = youtubePip,
                         onDismiss = { showYoutube = false },
-                        onDirectDownload = { startAuthorizedDownload(it) }
+                        onPip = { enterYoutubePip() }
                     )
                 }
             }
@@ -530,25 +541,35 @@ class MainActivity : ComponentActivity() {
         deleteSelected()
     }
 
-    private fun openYoutube(context: Context) { showYoutube = true }
-
-    private fun startAuthorizedDownload(url: String) {
-        val clean = url.trim()
-        if (clean.isBlank()) return
-        runCatching {
-            val request = DownloadManager.Request(Uri.parse(clean))
-                .setTitle("Sanches Music")
-                .setDescription("Download de arquivo autorizado")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(
-                    Environment.DIRECTORY_MUSIC,
-                    "Sanches Music/" + (Uri.parse(clean).lastPathSegment ?: "musica")
-                )
-            getSystemService(DownloadManager::class.java).enqueue(request)
-            Toast.makeText(this, "Download iniciado", Toast.LENGTH_SHORT).show()
-        }.onFailure {
-            Toast.makeText(this, "URL inválida", Toast.LENGTH_SHORT).show()
+    private fun openYoutube(context: Context) {
+        showYoutube = true
+        if (Build.VERSION.SDK_INT >= 31) {
+            setPictureInPictureParams(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .setAutoEnterEnabled(true)
+                    .build()
+            )
         }
+    }
+
+    private fun enterYoutubePip() {
+        if (Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .apply {
+                    if (Build.VERSION.SDK_INT >= 31) setAutoEnterEnabled(true)
+                }
+                .build()
+            enterPictureInPictureMode(params)
+        } else {
+            Toast.makeText(this, "Este aparelho não suporta janela flutuante.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        youtubePip = isInPictureInPictureMode
     }
 
     override fun onDestroy() {
@@ -720,7 +741,6 @@ private fun Home(
                     }
                 }
             }
-            if (current != null && selectedIds.isEmpty()) item { NowCard(current, playing, onMiniOpen, onToggle) }
             if (selectedIds.isNotEmpty()) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -751,7 +771,7 @@ private fun Home(
             onClick = onYoutube,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = if (current != null) 82.dp else 18.dp),
             containerColor = Red, contentColor = Color.White
-        ) { Icon(Icons.Default.Download, "Abrir YouTube") }
+        ) { Icon(Icons.Default.SmartDisplay, "Abrir YouTube") }
 
         if (showSettings) SettingsDialog(onClose = { onSettings(false) }, onRescan = { onRefresh(); onSettings(false) })
 
@@ -905,7 +925,7 @@ private fun CreatePlaylistDialog(
                                 onCheckedChange = { checked -> selectedIds = if (checked) selectedIds + song.id else selectedIds - song.id },
                                 colors = CheckboxDefaults.colors(checkedColor = Red)
                             )
-                            Artwork(song.albumId, song.art, 40.dp)
+                            Artwork(song, 40.dp)
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(song.title, color = Color.White, maxLines = 1)
@@ -963,59 +983,77 @@ private fun EditPlaylistDialog(
 }
 
 @Composable
-private fun YoutubeDialog(onDismiss: () -> Unit, onDirectDownload: (String) -> Unit) {
-    var url by remember { mutableStateOf("") }
+private fun YoutubeScreen(
+    inPip: Boolean,
+    onDismiss: () -> Unit,
+    onPip: () -> Unit
+) {
     val context = LocalContext.current
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .navigationBarsPadding()
     ) {
-        Surface(
-            Modifier.fillMaxWidth().fillMaxHeight(0.94f).padding(8.dp),
-            shape = RoundedCornerShape(24.dp), color = Panel, shadowElevation = 20.dp
-        ) {
-            Column(Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = {
+                WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.mediaPlaybackRequiresUserGesture = false
+                    settings.loadWithOverviewMode = true
+                    settings.useWideViewPort = true
+                    settings.allowContentAccess = true
+                    settings.allowFileAccess = false
+                    webViewClient = WebViewClient()
+                    loadUrl("https://m.youtube.com/")
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (!inPip) {
+            Surface(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                color = Color(0xDD050505)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("YouTube", color = Red, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text("Sanches Music • reprodução em segundo plano", color = TextSoft, fontSize = 11.sp)
+                    }
+                    FilledIconButton(
+                        onClick = onPip,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)
+                    ) {
+                        Icon(Icons.Default.PictureInPictureAlt, "Janela flutuante")
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, "Fechar", tint = Color.White)
+                    }
+                }
+            }
+
+            Surface(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xEE111111)
+            ) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("YouTube", color = Red, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text("Sanches Music", color = TextSoft, fontSize = 12.sp)
-                    }
-                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Fechar", tint = Color.White) }
-                }
-                AndroidView(
-                    factory = {
-                        WebView(context).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.mediaPlaybackRequiresUserGesture = false
-                            settings.loadWithOverviewMode = true
-                            settings.useWideViewPort = true
-                            webViewClient = WebViewClient()
-                            loadUrl("https://m.youtube.com/")
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().weight(1f)
-                )
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Info, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        "Downloads: somente arquivos/URLs cujo download você tenha autorização para fazer.",
-                        color = TextSoft, fontSize = 11.sp
+                        "Toque em Janela flutuante para continuar assistindo enquanto usa outros apps.",
+                        color = TextSoft,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f)
                     )
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = url, onValueChange = { url = it },
-                            label = { Text("URL direta autorizada") }, singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        FilledIconButton(
-                            onClick = { if (url.isNotBlank()) { onDirectDownload(url); url = "" } },
-                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)
-                        ) { Icon(Icons.Default.Download, "Baixar") }
-                    }
                 }
             }
         }
@@ -1146,7 +1184,7 @@ private fun TrackCard(
             .padding(9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Artwork(song.albumId, song.art, 58.dp)
+        Artwork(song, 58.dp)
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -1180,7 +1218,7 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
         color = Panel2
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(song.albumId, song.art, 74.dp)
+            Artwork(song, 74.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("TOCANDO AGORA", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -1206,7 +1244,7 @@ private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle
                 trackColor = Panel2
             )
             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(song.albumId, song.art, 48.dp)
+                Artwork(song, 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(song.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -1233,7 +1271,7 @@ private fun FullPlayer(
     onFavorite: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF30070A), Ink, Color(0xFF080808))))) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 24.dp).navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onBack) { Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(32.dp)) }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1243,7 +1281,7 @@ private fun FullPlayer(
                 IconButton(onFavorite) { Icon(Icons.Default.Favorite, null, tint = Red) }
             }
             Spacer(Modifier.height(45.dp))
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Artwork(song.albumId, song.art, 310.dp) }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Artwork(song, 310.dp) }
             Spacer(Modifier.height(30.dp))
             Text(song.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, maxLines = 2)
             Text(song.artist, color = TextSoft, fontSize = 17.sp, maxLines = 1)
@@ -1262,7 +1300,7 @@ private fun FullPlayer(
             Spacer(Modifier.height(20.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
                 IconButton({}) { Icon(Icons.Default.Shuffle, null, tint = Red) }
-                IconButton(onPrev) { Icon(Icons.Default.SkipPrevious, null, Modifier.size(38.dp)) }
+                IconButton(onPrev) { Icon(Icons.Default.SkipPrevious, null, Modifier.size(38.dp), tint = Red) }
                 FilledIconButton(
                     onToggle,
                     Modifier.size(76.dp),
@@ -1270,43 +1308,81 @@ private fun FullPlayer(
                 ) {
                     Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(40.dp))
                 }
-                IconButton(onNext) { Icon(Icons.Default.SkipNext, null, Modifier.size(38.dp)) }
+                IconButton(onNext) { Icon(Icons.Default.SkipNext, null, Modifier.size(38.dp), tint = Red) }
                 IconButton({}) { Icon(Icons.Default.Repeat, null, tint = Red) }
             }
-            Spacer(Modifier.height(35.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun Artwork(albumId: Long, bitmap: Bitmap?, size: Dp) {
+private fun Artwork(song: Song, size: Dp) {
     val context = LocalContext.current
     val density = context.resources.displayMetrics.density
-    val targetPx = (size.value * density).toInt().coerceAtLeast(64)
-    val loaded by produceState<Bitmap?>(initialValue = bitmap, albumId, bitmap, targetPx) {
-        if (value == null && albumId > 0) {
-            value = artworkCache.get(albumId)
+    val targetPx = (size.value * density).toInt().coerceIn(96, 960)
+    val loaded by produceState<Bitmap?>(initialValue = song.art, song.id, targetPx) {
+        if (value == null) {
+            value = artworkCache.get(song.id)
             if (value == null) {
                 value = withContext(Dispatchers.IO) {
                     runCatching {
-                        val uri = Uri.parse("content://media/external/audio/albums/$albumId/album_art")
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                        val sample = generateSequence(1) { it * 2 }.takeWhile { it <= 32 }
-                            .lastOrNull { bounds.outWidth / it >= targetPx && bounds.outHeight / it >= targetPx } ?: 1
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
-                                inSampleSize = sample
-                                inPreferredConfig = Bitmap.Config.RGB_565
-                            })
+                        var result: Bitmap? = null
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(context, song.uri)
+                            val bytes = retriever.embeddedPicture
+                            if (bytes != null) {
+                                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                                val sample = generateSequence(1) { it * 2 }
+                                    .takeWhile { it <= 32 }
+                                    .lastOrNull { bounds.outWidth / it >= targetPx && bounds.outHeight / it >= targetPx } ?: 1
+                                result = BitmapFactory.decodeByteArray(
+                                    bytes, 0, bytes.size,
+                                    BitmapFactory.Options().apply {
+                                        inSampleSize = sample
+                                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                                    }
+                                )
+                            }
+                        } finally {
+                            retriever.release()
                         }
+
+                        if (result == null && song.albumId > 0) {
+                            val uri = Uri.parse("content://media/external/audio/albums/" + song.albumId + "/album_art")
+                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            context.contentResolver.openInputStream(uri)?.use {
+                                BitmapFactory.decodeStream(it, null, bounds)
+                            }
+                            val sample = generateSequence(1) { it * 2 }
+                                .takeWhile { it <= 32 }
+                                .lastOrNull { bounds.outWidth / it >= targetPx && bounds.outHeight / it >= targetPx } ?: 1
+                            context.contentResolver.openInputStream(uri)?.use { input ->
+                                result = BitmapFactory.decodeStream(
+                                    input, null,
+                                    BitmapFactory.Options().apply {
+                                        inSampleSize = sample
+                                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                                    }
+                                )
+                            }
+                        }
+                        result
                     }.getOrNull()
-                }?.also { artworkCache.put(albumId, it) }
+                }?.also { artworkCache.put(song.id, it) }
             }
         }
     }
+
     if (loaded != null) {
-        Image(loaded!!.asImageBitmap(), null, Modifier.size(size).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop)
+        Image(
+            loaded!!.asImageBitmap(),
+            null,
+            Modifier.size(size).clip(RoundedCornerShape(20.dp)),
+            contentScale = ContentScale.Crop
+        )
     } else {
         Box(
             Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(
