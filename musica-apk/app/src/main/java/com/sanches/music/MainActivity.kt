@@ -59,6 +59,9 @@ private val Panel = Color(0xFF111111)
 private val Panel2 = Color(0xFF191919)
 private val Red = Color(0xFFE50914)
 private val RedBright = Color(0xFFFF3340)
+private val Violet = Red
+private val Mint = Red
+private val Gold = Red
 private val TextSoft = Color(0xFF8F8F8F)
 
 class MainActivity : ComponentActivity() {
