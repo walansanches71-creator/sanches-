@@ -16,6 +16,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.widget.Toast
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -233,7 +236,6 @@ class MainActivity : ComponentActivity() {
                 if (showYoutube) {
                     YoutubeDialog(
                         onDismiss = { showYoutube = false },
-                        onOpenYoutube = { openYoutube(this) },
                         onDirectDownload = { startAuthorizedDownload(it) }
                     )
                 }
@@ -441,52 +443,35 @@ class MainActivity : ComponentActivity() {
     private fun loadSongs() {
         Thread {
             val result = mutableListOf<Song>()
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ID
-        )
-
-        contentResolver.query(
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            MediaStore.Audio.Media.IS_MUSIC + " != 0",
-            null,
-            MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC"
-        )?.use { c ->
-            val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-            val albumIdCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-
-            while (c.moveToNext()) {
-                val id = c.getLong(idCol)
-                val albumId = c.getLong(albumIdCol)
-                val uri = android.content.ContentUris.withAppendedId(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
-                )
-                val artUri = Uri.parse("content://media/external/audio/albumart/$albumId")
-                val art = try {
-                    contentResolver.openInputStream(artUri)?.use { BitmapFactory.decodeStream(it) }
-                } catch (_: Exception) { null }
-                val artist = c.getString(artistCol)
-                result += Song(
-                    id,
-                    c.getString(titleCol) ?: "Sem título",
-                    if (artist.isNullOrBlank() || artist == "<unknown>") "Artista desconhecido" else artist,
-                    c.getString(albumCol) ?: "",
-                    uri,
-                    art
-                )
+            val projection = arrayOf(
+                MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.MIME_TYPE,
+                MediaStore.Audio.Media.DURATION
+            )
+            val selection = "(${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.MIME_TYPE} LIKE 'audio/%') AND ${MediaStore.Audio.Media.DURATION} > 0"
+            runCatching {
+                contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection, selection, null, MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC")?.use { c ->
+                    val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                    val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                    val artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                    val albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                    while (c.moveToNext()) {
+                        val id = c.getLong(idCol)
+                        val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+                        val rawArtist = c.getString(artistCol)
+                        result += Song(id, c.getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Sem título",
+                            if (rawArtist.isNullOrBlank() || rawArtist == "<unknown>") "Artista desconhecido" else rawArtist,
+                            c.getString(albumCol) ?: "", uri, null)
+                    }
+                }
+            }.onFailure { e -> runOnUiThread { Toast.makeText(this, "Erro ao ler músicas: ${e.message ?: "desconhecido"}", Toast.LENGTH_LONG).show() } }
+            runOnUiThread {
+                songs = result.distinctBy { it.id }
+                if (result.isEmpty()) Toast.makeText(this, "Nenhuma música encontrada. Verifique a permissão de Áudio e toque em Atualizar biblioteca.", Toast.LENGTH_LONG).show()
             }
-        }
-        runOnUiThread { songs = result }
-        }
+        }.start()
     }
-
     private fun playSong(song: Song) {
         val c = controller ?: return
         val items = songs.map {
@@ -528,9 +513,7 @@ class MainActivity : ComponentActivity() {
         deleteSelected()
     }
 
-    private fun openYoutube(context: Context) {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/")))
-    }
+    private fun openYoutube(context: Context) { showYoutube = true }
 
     private fun startAuthorizedDownload(url: String) {
         val clean = url.trim()
@@ -1031,55 +1014,33 @@ private fun EditPlaylistDialog(
 }
 
 @Composable
-private fun YoutubeDialog(
-    onDismiss: () -> Unit,
-    onOpenYoutube: () -> Unit,
-    onDirectDownload: (String) -> Unit
-) {
+private fun YoutubeDialog(onDismiss: () -> Unit, onDirectDownload: (String) -> Unit) {
     var url by remember { mutableStateOf("") }
+    val context = LocalContext.current
     AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Panel,
-        title = { Text("Baixar música", color = Red, fontWeight = FontWeight.Bold) },
+        onDismissRequest = onDismiss, containerColor = Panel,
+        title = { Text("YouTube • Sanches Music", color = Red, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "O Sanches Music pode baixar arquivos de áudio por URL direta quando o download é autorizado pelo site ou pelo dono do conteúdo.",
-                    color = TextSoft,
-                    fontSize = 12.sp
-                )
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("URL direta do arquivo") },
-                    placeholder = { Text("https://.../musica.mp3") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    onClick = { onDirectDownload(url); onDismiss() },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Red)
-                ) {
-                    Icon(Icons.Default.Download, null)
-                    Spacer(Modifier.width(7.dp))
-                    Text("Baixar arquivo")
-                }
-                OutlinedButton(
-                    onClick = onOpenYoutube,
-                    modifier = Modifier.fillMaxWidth(),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Red)
-                ) {
-                    Icon(Icons.Default.PlayCircle, null, tint = Red)
-                    Spacer(Modifier.width(7.dp))
-                    Text("Abrir YouTube", color = Red)
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AndroidView(factory = {
+                    WebView(context).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        webViewClient = WebViewClient()
+                        loadUrl("https://m.youtube.com/")
+                    }
+                }, modifier = Modifier.fillMaxWidth().height(400.dp))
+                Text("YouTube fica dentro do Sanches Music. Downloads: somente arquivos/URLs cujo download você tenha autorização para fazer.", color = TextSoft, fontSize = 11.sp)
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("URL direta autorizada") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { if (url.isNotBlank()) { onDirectDownload(url); url = "" } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
+                    Icon(Icons.Default.Download, null); Spacer(Modifier.width(7.dp)); Text("Baixar arquivo")
                 }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
     )
 }
-
 @Composable
 private fun SearchBar(value: String, onValue: (String) -> Unit) {
     OutlinedTextField(
