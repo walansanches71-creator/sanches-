@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
     private var query by mutableStateOf("")
     private var selectedIds by mutableStateOf<Set<Long>>(emptySet())
     private var showSettings by mutableStateOf(false)
+    private var artistFilter by mutableStateOf<String?>(null)
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) loadSongs()
@@ -225,10 +226,15 @@ private fun Home(
     onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit,
     onSelect: (Long) -> Unit, onDelete: () -> Unit, onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit
 ) {
-    val filtered = remember(songs, query) {
-        if (query.isBlank()) songs else songs.filter {
-            it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true)
+    val filtered = remember(songs, query, artistFilter) {
+        songs.filter {
+            (query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true)) &&
+            (artistFilter == null || it.artist.equals(artistFilter, true))
         }
+    }
+    val artists = remember(songs) {
+        songs.map { it.artist.trim() }.filter { it.isNotBlank() && it != "Artista desconhecido" }
+            .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 
     Box(Modifier.fillMaxSize().background(
@@ -249,9 +255,29 @@ private fun Home(
 
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                QuickChip("FAIXAS", songs.size.toString(), Violet)
-                QuickChip("ÁLBUNS", songs.map { it.album }.filter { it.isNotBlank() }.distinct().size.toString(), Mint)
-                QuickChip("PLAYLISTS", "0", Gold)
+                QuickChip("FAIXAS", songs.size.toString(), Red)
+                QuickChip("BANDAS", artists.size.toString(), Red)
+                QuickChip("ÁLBUNS", songs.map { it.album }.filter { it.isNotBlank() }.distinct().size.toString(), Red)
+            }
+            if (artists.isNotEmpty()) {
+                Text("Bandas e artistas", Modifier.padding(start = 22.dp, top = 2.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = artistFilter == null,
+                        onClick = { artistFilter = null },
+                        label = { Text("Todas") }
+                    )
+                    artists.forEach { artist ->
+                        FilterChip(
+                            selected = artistFilter == artist,
+                            onClick = { artistFilter = if (artistFilter == artist) null else artist },
+                            label = { Text(artist, maxLines = 1) }
+                        )
+                    }
+                }
             }
 
             if (current != null && selectedIds.isEmpty()) NowCard(current, playing, onMiniOpen, onToggle)
