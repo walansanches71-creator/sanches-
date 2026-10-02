@@ -553,9 +553,34 @@ class MainActivity : ComponentActivity() {
         val token = SessionToken(this, ComponentName(this, MusicService::class.java))
         val future = MediaController.Builder(this, token).buildAsync()
         future.addListener({
-            controller = future.get()
+            val c = future.get()
+            controller = c
+            c.addListener(object : androidx.media3.common.Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    updateCurrentFromMediaItem(mediaItem)
+                    position = 0L
+                    duration = if (c.duration > 0) c.duration else 1L
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == androidx.media3.common.Player.STATE_READY) {
+                        updateCurrentFromMediaItem(c.currentMediaItem)
+                        duration = if (c.duration > 0) c.duration else 1L
+                    }
+                }
+            })
+            updateCurrentFromMediaItem(c.currentMediaItem)
             observeController()
         }, mainExecutor)
+    }
+
+    private fun updateCurrentFromMediaItem(mediaItem: MediaItem?) {
+        val mediaId = mediaItem?.mediaId?.toLongOrNull() ?: return
+        val match = playbackQueue.firstOrNull { it.id == mediaId }
+            ?: songs.firstOrNull { it.id == mediaId }
+        if (match != null && current?.id != match.id) {
+            current = match
+        }
     }
 
     private fun observeController() {
@@ -568,11 +593,10 @@ class MainActivity : ComponentActivity() {
                     repeatMode = c.repeatMode
                     position = c.currentPosition.coerceAtLeast(0)
                     duration = if (c.duration > 0) c.duration else 1
-                    // A fila pode ser uma playlist. Nunca associe o índice da fila ao índice da biblioteca.
-                    val mediaId = c.currentMediaItem?.mediaId?.toLongOrNull()
-                    if (mediaId != null) {
-                        songs.firstOrNull { it.id == mediaId }?.let { current = it }
-                    }
+
+                    // A fila pode ser uma playlist. A faixa atual é identificada pelo mediaId,
+                    // e a capa/nome são atualizados imediatamente na transição.
+                    updateCurrentFromMediaItem(c.currentMediaItem)
 
                     // O alerta acontece somente ao cruzar um volume realmente alto.
                     val volumeNow = c.volume
