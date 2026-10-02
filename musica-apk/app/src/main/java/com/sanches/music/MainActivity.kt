@@ -271,10 +271,11 @@ class MainActivity : ComponentActivity() {
                     if (playlist != null) {
                         EditPlaylistDialog(
                             playlist = playlist,
+                            songs = songs,
                             coverUri = pendingPlaylistCover,
                             onPickCover = { coverPickerLauncher.launch(arrayOf("image/*")) },
                             onDismiss = { editingPlaylistId = null; pendingPlaylistCover = null },
-                            onSave = { name -> savePlaylistEdit(playlist.id, name) },
+                            onSave = { name, ids -> savePlaylistEdit(playlist.id, name, ids) },
                             onDelete = { deletePlaylist(playlist.id) }
                         )
                     }
@@ -497,18 +498,20 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, finalIds.size.toString() + " faixa(s) adicionada(s) à playlist", Toast.LENGTH_SHORT).show()
     }
 
-    private fun savePlaylistEdit(id: Long, name: String) {
+    private fun savePlaylistEdit(id: Long, name: String, songIds: Set<Long>) {
         val clean = name.trim()
         if (clean.isBlank()) return
         playlists = playlists.map {
             if (it.id == id) it.copy(
                 name = clean,
-                coverUri = pendingPlaylistCover?.toString() ?: it.coverUri
+                coverUri = pendingPlaylistCover?.toString() ?: it.coverUri,
+                songIds = songIds
             ) else it
         }
         pendingPlaylistCover = null
         editingPlaylistId = null
         persistPlaylists()
+        Toast.makeText(this, "Playlist atualizada", Toast.LENGTH_SHORT).show()
     }
 
     private fun deletePlaylist(id: Long) {
@@ -1226,21 +1229,29 @@ private fun CreatePlaylistDialog(
 @Composable
 private fun EditPlaylistDialog(
     playlist: Playlist,
+    songs: List<Song>,
     coverUri: Uri?,
     onPickCover: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
+    onSave: (String, Set<Long>) -> Unit,
     onDelete: () -> Unit
 ) {
     var name by remember(playlist.id) { mutableStateOf(playlist.name) }
+    var selectedIds by remember(playlist.id) { mutableStateOf(playlist.songIds) }
+    var filter by remember(playlist.id) { mutableStateOf("") }
     val shownCover = coverUri?.toString() ?: playlist.coverUri
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Panel,
         title = { Text("Editar playlist", color = Red, fontWeight = FontWeight.Bold) },
         text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                PlaylistCover(shownCover, 120.dp)
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PlaylistCover(shownCover, 105.dp)
                 OutlinedButton(onClick = onPickCover, border = androidx.compose.foundation.BorderStroke(1.dp, Red)) {
                     Icon(Icons.Default.Image, null, tint = Red)
                     Spacer(Modifier.width(6.dp))
@@ -1250,8 +1261,65 @@ private fun EditPlaylistDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Nome da playlist") },
-                    singleLine = true
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = filter,
+                    onValueChange = { filter = it },
+                    label = { Text("Adicionar músicas") },
+                    placeholder = { Text("Buscar música, artista ou álbum") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, null, tint = Red) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    selectedIds.size.toString() + " faixa(s) na playlist",
+                    color = Red,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                val visibleSongs = songs.filter {
+                    filter.isBlank() ||
+                        it.title.contains(filter, true) ||
+                        it.artist.contains(filter, true) ||
+                        it.album.contains(filter, true)
+                }
+                LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(min = 70.dp, max = 280.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(visibleSongs, key = { it.id }) { song ->
+                        val alreadyInPlaylist = playlist.songIds.contains(song.id)
+                        val checked = selectedIds.contains(song.id)
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    selectedIds = if (checked) selectedIds - song.id else selectedIds + song.id
+                                }
+                                .padding(vertical = 4.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = {
+                                    selectedIds = if (it) selectedIds + song.id else selectedIds - song.id
+                                },
+                                colors = CheckboxDefaults.colors(checkedColor = Red)
+                            )
+                            Artwork(song, 40.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(song.title, color = Color.White, maxLines = 1)
+                                Text(song.artist, color = TextSoft, fontSize = 12.sp, maxLines = 1)
+                            }
+                            if (alreadyInPlaylist) {
+                                Text("JÁ ESTÁ", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
                 TextButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, null, tint = Red)
                     Spacer(Modifier.width(6.dp))
@@ -1259,11 +1327,16 @@ private fun EditPlaylistDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(name) }) { Text("Salvar", color = Red) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
+        confirmButton = {
+            TextButton(onClick = { onSave(name, selectedIds) }) {
+                Text("Salvar", color = Red)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) }
+        }
     )
 }
-
 @Composable
 private fun SearchBar(value: String, onValue: (String) -> Unit) {
     OutlinedTextField(
