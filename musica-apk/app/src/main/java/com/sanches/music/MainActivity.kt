@@ -223,7 +223,7 @@ class MainActivity : ComponentActivity() {
                         onDeletePlaylist = { deletePlaylist(it) },
                         onYoutube = { openYoutube(this) },
                         onRefresh = { loadSongs() },
-                        onPickCover = { coverPickerLauncher.launch("image/*") },
+                        onPickCover = { coverPickerLauncher.launch(arrayOf("image/*")) },
                         onQueue = { showQueue = true },
                         onSleep = { showSleepTimer = true },
                         onEqualizer = { showEqualizer = true },
@@ -238,7 +238,7 @@ class MainActivity : ComponentActivity() {
                         songs = songs,
                         initialSongId = songForPlaylist,
                         coverUri = pendingPlaylistCover,
-                        onPickCover = { coverPickerLauncher.launch("image/*") },
+                        onPickCover = { coverPickerLauncher.launch(arrayOf("image/*")) },
                         onDismiss = {
                             showCreatePlaylist = false
                             pendingPlaylistCover = null
@@ -254,7 +254,7 @@ class MainActivity : ComponentActivity() {
                         EditPlaylistDialog(
                             playlist = playlist,
                             coverUri = pendingPlaylistCover,
-                            onPickCover = { coverPickerLauncher.launch("image/*") },
+                            onPickCover = { coverPickerLauncher.launch(arrayOf("image/*")) },
                             onDismiss = { editingPlaylistId = null; pendingPlaylistCover = null },
                             onSave = { name -> savePlaylistEdit(playlist.id, name) },
                             onDelete = { deletePlaylist(playlist.id) }
