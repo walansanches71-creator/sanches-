@@ -3,6 +3,7 @@ package com.sanches.music
 import android.Manifest
 import android.app.DownloadManager
 import android.content.ComponentName
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
