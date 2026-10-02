@@ -14,6 +14,8 @@ class MusicService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var bassBoost: BassBoost? = null
     private var equalizer: Equalizer? = null
+    private var pendingBass = 500
+    private var pendingBands = floatArrayOf(0f, 0f, 0f, 0f, 0f)
 
     override fun onCreate() {
         super.onCreate()
@@ -33,6 +35,7 @@ class MusicService : MediaSessionService() {
                     runCatching {
                         bassBoost = BassBoost(0, audioSessionId).apply { enabled = true }
                         equalizer = Equalizer(0, audioSessionId).apply { enabled = true }
+                        applyBands(pendingBass, pendingBands)
                     }
                 }
             }
@@ -52,46 +55,63 @@ class MusicService : MediaSessionService() {
     }
 
     private fun applyBands(bass: Int, values: FloatArray) {
+        pendingBass = bass.coerceIn(0, 1000)
+        pendingBands = if (values.size == 5) values.copyOf() else floatArrayOf(0f, 0f, 0f, 0f, 0f)
+
         val eq = equalizer ?: return
         val boost = bassBoost ?: return
         runCatching {
-            boost.setStrength(bass.coerceIn(0, 1000).toShort())
+            boost.enabled = true
+            eq.enabled = true
+            boost.setStrength(pendingBass.toShort())
+
             val range = eq.bandLevelRange
-            val count = eq.numberOfBands.toInt()
+            val count = eq.numberOfBands.toInt().coerceAtLeast(1)
+            val minFreq = 60.0
+            val maxFreq = 14000.0
+
+            // Distribui os 5 controles do app pela frequência real do equalizador
+            // do aparelho, em escala logarítmica. Assim cada controle atua na região correta.
             for (i in 0 until count) {
-                val source = if (values.isNotEmpty()) {
-                    values[(i * values.size / count).coerceIn(0, values.lastIndex)]
-                } else 0f
-                val millibels = (source * 100f).toInt()
-                eq.setBandLevel(i.toShort(), millibels.coerceIn(range[0].toInt(), range[1].toInt()).toShort())
+                val centerHz = runCatching {
+                    val fr = eq.getCenterFreq(i.toShort()).toDouble() / 1000.0
+                    fr.coerceIn(minFreq, maxFreq)
+                }.getOrDefault(minFreq)
+
+                val pos = kotlin.math.ln(centerHz / minFreq) / kotlin.math.ln(maxFreq / minFreq)
+                val scaled = (pos * (pendingBands.lastIndex)).coerceIn(0.0, pendingBands.lastIndex.toDouble())
+                val left = kotlin.math.floor(scaled).toInt()
+                val right = kotlin.math.ceil(scaled).toInt().coerceAtMost(pendingBands.lastIndex)
+                val fraction = scaled - left
+                val value = pendingBands[left] * (1.0 - fraction) + pendingBands[right] * fraction
+                val millibels = (value * 100.0).toInt()
+                    .coerceIn(range[0].toInt(), range[1].toInt())
+
+                eq.setBandLevel(i.toShort(), millibels.toShort())
             }
         }
     }
 
     private fun applyPreset(name: String) {
+        val presetBass = when (name) {
+            "Rock", "Metal" -> 800
+            "Bass Boost" -> 1000
+            "Vocal" -> 250
+            else -> 500
+        }
+        val presetBands = when (name) {
+            "Rock" -> floatArrayOf(5f, 3f, 1f, 3f, 5f)
+            "Metal" -> floatArrayOf(7f, 4f, 0f, 4f, 6f)
+            "Bass Boost" -> floatArrayOf(10f, 6f, 2f, 0f, -2f)
+            "Vocal" -> floatArrayOf(-3f, 0f, 4f, 7f, 4f)
+            else -> floatArrayOf(0f, 0f, 0f, 0f, 0f)
+        }
+        pendingBass = presetBass
+        pendingBands = presetBands
         val eq = equalizer ?: return
         val bass = bassBoost ?: return
         runCatching {
-            bass.setStrength(
-                when (name) {
-                    "Rock", "Metal" -> 800
-                    "Bass Boost" -> 1000
-                    "Vocal" -> 250
-                    else -> 500
-                }.toShort()
-            )
-            val bands = eq.numberOfBands
-            for (i in 0 until bands) {
-                val level = when (name) {
-                    "Rock" -> if (i < bands / 2) 500 else 250
-                    "Metal" -> if (i < bands / 2) 700 else 350
-                    "Bass Boost" -> if (i < bands / 2) 1000 else 0
-                    "Vocal" -> if (i > bands / 2) 500 else -100
-                    else -> 0
-                }
-                val range = eq.bandLevelRange
-                eq.setBandLevel(i.toShort(), level.coerceIn(range[0].toInt(), range[1].toInt()).toShort())
-            }
+            applyBands(pendingBass, pendingBands)
         }
     }
 
