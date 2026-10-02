@@ -734,6 +734,7 @@ private fun Home(
                     activePlaylistId?.let { onRemoveFromPlaylist(it, menuSong.id) }
                     menuSongId = null
                 },
+                onEditSong = { onEditSong(menuSong.id); menuSongId = null },
                 onDelete = { onDeleteSong(menuSong); menuSongId = null }
             )
         }
@@ -770,6 +771,7 @@ private fun TrackMenuDialog(
     onFavorite: () -> Unit,
     onPlaylist: () -> Unit,
     onRemoveFromPlaylist: () -> Unit,
+    onEditSong: () -> Unit,
     onDelete: () -> Unit
 ) {
     AlertDialog(
@@ -783,6 +785,7 @@ private fun TrackMenuDialog(
                 if (canRemoveFromPlaylist) {
                     MenuAction("Remover desta playlist", Icons.Default.RemoveCircleOutline, onRemoveFromPlaylist)
                 }
+                MenuAction("Editar nome/artista/álbum", Icons.Default.Edit, onEditSong)
                 MenuAction("Apagar música do celular", Icons.Default.Delete, onDelete)
             }
         },
@@ -1261,4 +1264,155 @@ private fun Artwork(bitmap: Bitmap?, size: Dp) {
 private fun formatTime(ms: Long): String {
     val total = ms / 1000
     return "%d:%02d".format(total / 60, total % 60)
+}
+
+
+@Composable
+private fun QueueDialog(
+    songs: List<Song>,
+    current: Song?,
+    onDismiss: () -> Unit,
+    onPlay: (Song) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Fila de reprodução", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(songs, key = { it.id }) { song ->
+                    TextButton(onClick = { onPlay(song) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (song.id == current?.id) "▶ " + song.title else song.title, color = if (song.id == current?.id) Red else Color.White)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun SleepTimerDialog(
+    remaining: Long,
+    onDismiss: () -> Unit,
+    onSet: (Int) -> Unit
+) {
+    val left = if (remaining > System.currentTimeMillis()) ((remaining - System.currentTimeMillis()) / 60000L).toInt() else 0
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Sleep Timer", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (left > 0) Text("Ativo: aproximadamente $left min", color = TextSoft)
+                listOf(15, 30, 45, 60, 90).forEach { m ->
+                    TextButton(onClick = { onSet(m) }, modifier = Modifier.fillMaxWidth()) { Text("$m minutos", color = Color.White) }
+                }
+                TextButton(onClick = { onSet(0) }, modifier = Modifier.fillMaxWidth()) { Text("Desativar", color = Red) }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun EqualizerDialog(
+    onDismiss: () -> Unit,
+    onPreset: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Equalizador", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("Preset aplicado ao áudio em reprodução.", color = TextSoft, fontSize = 12.sp)
+                listOf("Normal", "Rock", "Metal", "Bass Boost", "Vocal").forEach { preset ->
+                    TextButton(onClick = { onPreset(preset); onDismiss() }, modifier = Modifier.fillMaxWidth()) {
+                        Text(preset, color = Color.White)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun BackupDialog(
+    onDismiss: () -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Backup", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Salva favoritos, histórico, contagens e playlists.", color = TextSoft)
+                Button(onClick = { onExport(); onDismiss() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
+                    Icon(Icons.Default.Upload, null); Spacer(Modifier.width(8.dp)); Text("Exportar backup")
+                }
+                OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Download, null, tint = Red); Spacer(Modifier.width(8.dp)); Text("Importar backup", color = Red)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun DuplicateDialog(
+    songs: List<Song>,
+    onDismiss: () -> Unit,
+    onDelete: (Set<Long>) -> Unit
+) {
+    val groups = remember(songs) {
+        songs.groupBy { it.title.trim().lowercase() + "|" + it.artist.trim().lowercase() + "|" + it.album.trim().lowercase() }
+            .values.filter { it.size > 1 }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Músicas duplicadas", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (groups.isEmpty()) Text("Nenhuma duplicata encontrada.", color = TextSoft)
+                else {
+                    Text(groups.size.toString() + " grupo(s) encontrado(s). Se quiser apagar, selecione as faixas na biblioteca.", color = TextSoft)
+                    groups.take(10).forEach { group ->
+                        Text(group.first().title + " • " + group.size + " arquivos", color = Color.White, maxLines = 1)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun SongEditorDialog(
+    song: Song,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit
+) {
+    var title by remember(song.id) { mutableStateOf(song.title) }
+    var artist by remember(song.id) { mutableStateOf(song.artist) }
+    var album by remember(song.id) { mutableStateOf(song.album) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Editar música", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(title, { title = it }, label = { Text("Nome") }, singleLine = true)
+                OutlinedTextField(artist, { artist = it }, label = { Text("Artista") }, singleLine = true)
+                OutlinedTextField(album, { album = it }, label = { Text("Álbum") }, singleLine = true)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(title, artist, album) }) { Text("Salvar", color = Red) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
+    )
 }
