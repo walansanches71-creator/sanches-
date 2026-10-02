@@ -226,6 +226,7 @@ private fun Home(
     onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit,
     onSelect: (Long) -> Unit, onDelete: () -> Unit, onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit
 ) {
+    var artistFilter by remember { mutableStateOf<String?>(null) }
     val filtered = remember(songs, query, artistFilter) {
         songs.filter {
             (query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true)) &&
