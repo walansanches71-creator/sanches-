@@ -19,8 +19,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.widget.Toast
-
-
 import android.media.MediaMetadataRetriever
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -63,7 +61,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -85,7 +82,6 @@ data class Playlist(
     val coverUri: String?,
     val songIds: Set<Long>
 )
-
 
 private val Ink = Color(0xFF050505)
 private val Panel = Color(0xFF111111)
@@ -146,7 +142,6 @@ class MainActivity : ComponentActivity() {
     private var showBackup by mutableStateOf(false)
     private var showDuplicates by mutableStateOf(false)
     private var showEditorSongId by mutableStateOf<Long?>(null)
-    private var onlineTracks by mutableStateOf<List<OnlineTrack>>(emptyList())
     private var sleepUntil by mutableLongStateOf(0L)
     private val sleepHandler = Handler(Looper.getMainLooper())
 
@@ -252,7 +247,7 @@ class MainActivity : ComponentActivity() {
                         onSmartQueue = { smartQueue() },
                         onBackup = { showBackup = true },
                         onDuplicates = { showDuplicates = true },
-                        onEditSong = { showEditorSongId = it },
+                        onEditSong = { showEditorSongId = it }
                     )
                 }
 
@@ -591,9 +586,9 @@ class MainActivity : ComponentActivity() {
 
     private fun syncCurrentTrack(c: MediaController) {
         val mediaItem = c.currentMediaItem
-        val mediaId = mediaItem?.mediaId?.removePrefix("online_")?.toLongOrNull()
+        val mediaId = mediaItem?.mediaId?.toLongOrNull()
         val byId = mediaId?.let { id ->
-            playbackQueue.firstOrNull { kotlin.math.abs(it.id) == id } ?: songs.firstOrNull { it.id == id }
+            playbackQueue.firstOrNull { it.id == id } ?: songs.firstOrNull { it.id == id }
         }
         val byIndex = if (byId == null && c.currentMediaItemIndex >= 0) {
             playbackQueue.getOrNull(c.currentMediaItemIndex)
@@ -733,21 +728,6 @@ class MainActivity : ComponentActivity() {
         current = song
     }
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            runCatching {
-                val encoded=URLEncoder.encode(query.trim(),"UTF-8")
-                val base="https://api.jamendo.com/v3.0/tracks/?client_id=709fa152&format=json&limit=25&audioformat=mp32&imagesize=300"
-                val url=if(query.isBlank()) base+"&featured=1&tags=rock" else base+"&search="+encoded
-                val con=URL(url).openConnection().apply { connectTimeout=10000; readTimeout=15000 }
-                val results=JSONObject(con.getInputStream().bufferedReader().use{it.readText()}).optJSONArray("results")?:JSONArray()
-                buildList { for(i in 0 until results.length()){ val o=results.optJSONObject(i)?:continue; val a=o.optString("audio",""); if(a.isNotBlank()) add(OnlineTrack(o.optLong("id"),o.optString("name","Sem título").trim(),o.optString("artist_name","Artista desconhecido").trim(),o.optString("album_name","").trim(),o.optString("image",o.optString("album_image","")),a)) } }
-        }
-    }
-
-        val c=controller?:return; val q=queue.distinctBy{it.id}
-        val sq=q.map{Song(-kotlin.math.abs(it.id),it.title,it.artist,it.album,0L,Uri.parse(it.audioUrl),null)}
-        val items=q.map{t->MediaItem.Builder().setMediaId("online_"+t.id).setUri(t.audioUrl).setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).setAlbumTitle(t.album).setArtworkUri(t.imageUrl.takeIf{it.isNotBlank()}?.let(Uri::parse)).setArtworkData(buildNotificationArtwork(),MediaMetadata.PICTURE_TYPE_ILLUSTRATION).build()).build()}
-    }
     private fun deleteSelected() {
         val targets = songs.filter { selectedIds.contains(it.id) }
         if (targets.isEmpty()) return
@@ -844,7 +824,6 @@ private fun Home(
                 }
             }
             item { SearchBar(query, onQuery) }
-            item { OutlinedButton(onClick=onOnline,modifier=Modifier.fillMaxWidth().padding(horizontal=22.dp),colors=ButtonDefaults.outlinedButtonColors(contentColor=Red)){Icon(Icons.Default.Public,null);Spacer(Modifier.width(8.dp));Text("MÚSICAS ONLINE",fontWeight=FontWeight.Bold)} }
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     QuickChip("FAIXAS", songs.size.toString(), Red)
@@ -949,7 +928,7 @@ private fun Home(
                 shadowElevation = 12.dp
             ) {
                 key(current.id) {
-                    CompactPlayer(current, playing, onMiniOpen, onToggle, { controller?.seekToPreviousMediaItem() }, { controller?.seekToNextMediaItem() })
+                    CompactPlayer(current, playing, onMiniOpen, onToggle)
                 }
             }
         }
@@ -1542,7 +1521,7 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
 }
 
 @Composable
-private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle: () -> Unit, previous: () -> Unit, next: () -> Unit) {
+private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle: () -> Unit) {
     Surface(Modifier.fillMaxWidth().clickable { open() }, color = Color(0xFF101010), tonalElevation = 8.dp) {
         Column {
             LinearProgressIndicator(
@@ -1558,10 +1537,8 @@ private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle
                     Text(song.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     Text(song.artist, fontSize = 12.sp, color = TextSoft, maxLines = 1)
                 }
-                IconButton(onClick=previous){Icon(Icons.Default.SkipPrevious,"Anterior",tint=Red)}
-                IconButton(onClick=toggle){Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,null,tint=Red)}
-                IconButton(onClick=next){Icon(Icons.Default.SkipNext,"Próxima",tint=Red)}
-                Icon(Icons.Default.QueueMusic,null,tint=Red,modifier=Modifier.padding(horizontal=2.dp))
+                IconButton(toggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Red) }
+                Icon(Icons.Default.QueueMusic, null, tint = Red, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }
     }
@@ -1672,7 +1649,6 @@ private fun Artwork(song: Song, size: Dp) {
                             retriever.release()
                         }
 
-                        if (result == null && (song.uri.scheme=="http" || song.uri.scheme=="https")) { runCatching { URL(song.uri.toString()).openStream().use { input->result=BitmapFactory.decodeStream(input) } } }
                         if (result == null && song.albumId > 0) {
                             val uri = Uri.parse("content://media/external/audio/albums/" + song.albumId + "/album_art")
                             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -1724,15 +1700,6 @@ private fun formatTime(ms: Long): String {
 }
 
 
-Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){
-Surface(Modifier.fillMaxSize().padding(top=28.dp),color=Ink,shape=RoundedCornerShape(topStart=28.dp,topEnd=28.dp)){
-Column(Modifier.fillMaxSize().padding(18.dp)){
-Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onDismiss){Icon(Icons.Default.ArrowBack,"Voltar",tint=Red)};Column(Modifier.weight(1f)){Text("MÚSICAS ONLINE",color=Red,fontSize=12.sp,fontWeight=FontWeight.Bold);Text("Jamendo",color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Black)}}
-Row(verticalAlignment=Alignment.CenterVertically){OutlinedTextField(query,onQuery,Modifier.weight(1f),singleLine=true,label={Text("Buscar música")});Spacer(Modifier.width(8.dp));FilledIconButton(onClick=onSearch,colors=IconButtonDefaults.filledIconButtonColors(containerColor=Red)){Icon(Icons.Default.Search,"Buscar")}}
-Text("Catálogo independente • streaming gratuito",color=TextSoft,fontSize=12.sp,modifier=Modifier.padding(vertical=8.dp))
-}
-}
-}
 @Composable
 private fun QueueDialog(
     songs: List<Song>,
