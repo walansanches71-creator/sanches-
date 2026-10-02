@@ -686,7 +686,8 @@ private fun Home(
     onDeletePlaylist: (Long) -> Unit, onRefresh: () -> Unit,
     onClearHistory: () -> Unit, onClearPlayCounts: () -> Unit,
     onPickCover: () -> Unit, onQueue: () -> Unit, onSleep: () -> Unit,
-    onEqualizer: () -> Unit, onBackup: () -> Unit, onDuplicates: () -> Unit,
+    onEqualizer: () -> Unit, onMixer: () -> Unit, onHearing: () -> Unit, onStats: () -> Unit, onSmartQueue: () -> Unit,
+    onBackup: () -> Unit, onDuplicates: () -> Unit,
     onEditSong: (Long) -> Unit
 ) {
     var favoritesOnly by remember { mutableStateOf(false) }
@@ -841,7 +842,8 @@ private fun Home(
             onClose = { onSettings(false) },
             onRescan = { onRefresh(); onSettings(false) },
             onClearHistory = onClearHistory,
-            onClearPlayCounts = onClearPlayCounts
+            onClearPlayCounts = onClearPlayCounts,
+            onMixer = onMixer, onHearing = onHearing, onStats = onStats, onSmartQueue = onSmartQueue
         )
 
         val menuSong = songs.firstOrNull { it.id == menuSongId }
@@ -864,7 +866,11 @@ private fun SettingsDialog(
     onClose: () -> Unit,
     onRescan: () -> Unit,
     onClearHistory: () -> Unit,
-    onClearPlayCounts: () -> Unit
+    onClearPlayCounts: () -> Unit,
+    onMixer: () -> Unit,
+    onHearing: () -> Unit,
+    onStats: () -> Unit,
+    onSmartQueue: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onClose,
@@ -905,8 +911,32 @@ private fun SettingsDialog(
                     Text("Limpar histórico", color = Red)
                 }
 
-                OutlinedButton(onClick = onClearPlayCounts, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onMixer, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Tune, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Central de áudio / Mixer", color = Red)
+                }
+
+                OutlinedButton(onClick = onHearing, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Hearing, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Proteção auditiva", color = Red)
+                }
+
+                OutlinedButton(onClick = onStats, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.BarChart, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Estatísticas", color = Red)
+                }
+
+                OutlinedButton(onClick = onSmartQueue, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.QueueMusic, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Fila inteligente", color = Red)
+                }
+
+                OutlinedButton(onClick = onClearPlayCounts, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.DeleteSweep, null, tint = Red)
                     Spacer(Modifier.width(8.dp))
                     Text("Zerar mais tocadas", color = Red)
                 }
