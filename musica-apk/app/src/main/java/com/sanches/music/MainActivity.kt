@@ -1,24 +1,29 @@
 package com.sanches.music
 
 import android.Manifest
+import android.app.DownloadManager
 import android.content.ComponentName
-import androidx.activity.result.IntentSenderRequest
-import android.content.ContentUris
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,6 +42,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -45,6 +51,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class Song(
     val id: Long,
@@ -55,14 +65,18 @@ data class Song(
     val art: Bitmap?
 )
 
+data class Playlist(
+    val id: Long,
+    val name: String,
+    val coverUri: String?,
+    val songIds: Set<Long>
+)
+
 private val Ink = Color(0xFF050505)
 private val Panel = Color(0xFF111111)
 private val Panel2 = Color(0xFF191919)
 private val Red = Color(0xFFE50914)
 private val RedBright = Color(0xFFFF3340)
-private val Violet = Red
-private val Mint = Red
-private val Gold = Red
 private val TextSoft = Color(0xFF8F8F8F)
 
 class MainActivity : ComponentActivity() {
@@ -76,7 +90,16 @@ class MainActivity : ComponentActivity() {
     private var query by mutableStateOf("")
     private var selectedIds by mutableStateOf<Set<Long>>(emptySet())
     private var showSettings by mutableStateOf(false)
-    private var artistFilter by mutableStateOf<String?>(null)
+    private var favorites by mutableStateOf<Set<Long>>(emptySet())
+    private var playlists by mutableStateOf<List<Playlist>>(emptyList())
+    private var showCreatePlaylist by mutableStateOf(false)
+    private var showPlaylistPicker by mutableStateOf(false)
+    private var showYoutube by mutableStateOf(false)
+    private var editingPlaylistId by mutableStateOf<Long?>(null)
+    private var pendingPlaylistCover by mutableStateOf<Uri?>(null)
+    private var songForPlaylist by mutableStateOf<Long?>(null)
+
+    private val prefs by lazy { getSharedPreferences("sanches_music", MODE_PRIVATE) }
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) loadSongs()
@@ -91,25 +114,196 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val coverPickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) pendingPlaylistCover = uri
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loadSavedData()
         setContent {
             SanchesTheme {
                 if (showPlayer && current != null) {
-                    FullPlayer(current!!, isPlaying, position, duration, { showPlayer = false }, { toggle() },
-                        { controller?.seekTo(it) }, { controller?.seekToNextMediaItem() }, { controller?.seekToPreviousMediaItem() })
+                    FullPlayer(
+                        current!!, isPlaying, position, duration,
+                        { showPlayer = false },
+                        { toggle() },
+                        { controller?.seekTo(it) },
+                        { controller?.seekToNextMediaItem() },
+                        { controller?.seekToPreviousMediaItem() },
+                        { toggleFavorite(current!!.id) }
+                    )
                 } else {
                     Home(
-    songs, current, isPlaying, query, selectedIds, showSettings,
-    { query = it }, { playSong(it) }, { showPlayer = true }, { toggle() },
-    { id -> selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id },
-    { deleteSelected() }, { selectedIds = emptySet() }, { showSettings = it; if (!it) loadSongs() }
-)
+                        songs = songs,
+                        current = current,
+                        playing = isPlaying,
+                        query = query,
+                        selectedIds = selectedIds,
+                        favorites = favorites,
+                        playlists = playlists,
+                        showSettings = showSettings,
+                        onQuery = { query = it },
+                        onSong = { playSong(it) },
+                        onMiniOpen = { showPlayer = true },
+                        onToggle = { toggle() },
+                        onSelect = { id -> selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id },
+                        onDelete = { deleteSelected() },
+                        onClearSelection = { selectedIds = emptySet() },
+                        onSettings = { showSettings = it; if (!it) loadSongs() },
+                        onToggleFavorite = { toggleFavorite(it) },
+                        onOpenPlaylistPicker = { songForPlaylist = it; showPlaylistPicker = true },
+                        onRemoveFromPlaylist = { playlistId, songId -> removeSongFromPlaylist(playlistId, songId) },
+                        onDeleteSong = { deleteSong(it) },
+                        onCreatePlaylist = { showCreatePlaylist = true; pendingPlaylistCover = null },
+                        onEditPlaylist = { id -> editingPlaylistId = id; pendingPlaylistCover = null },
+                        onDeletePlaylist = { deletePlaylist(it) },
+                        onYoutube = { showYoutube = true },
+                        onRefresh = { loadSongs() },
+                        onPickCover = { coverPickerLauncher.launch("image/*") }
+                    )
+                }
+
+                if (showCreatePlaylist) {
+                    CreatePlaylistDialog(
+                        coverUri = pendingPlaylistCover,
+                        onPickCover = { coverPickerLauncher.launch("image/*") },
+                        onDismiss = { showCreatePlaylist = false; pendingPlaylistCover = null },
+                        onCreate = { createPlaylist(it) }
+                    )
+                }
+
+                if (editingPlaylistId != null) {
+                    val playlist = playlists.firstOrNull { it.id == editingPlaylistId }
+                    if (playlist != null) {
+                        EditPlaylistDialog(
+                            playlist = playlist,
+                            coverUri = pendingPlaylistCover,
+                            onPickCover = { coverPickerLauncher.launch("image/*") },
+                            onDismiss = { editingPlaylistId = null; pendingPlaylistCover = null },
+                            onSave = { name -> savePlaylistEdit(playlist.id, name) }
+                        )
+                    }
+                }
+
+                if (showPlaylistPicker) {
+                    PlaylistPickerDialog(
+                        playlists = playlists,
+                        onDismiss = { showPlaylistPicker = false; songForPlaylist = null },
+                        onChoose = { playlistId ->
+                            songForPlaylist?.let { addSongToPlaylist(playlistId, it) }
+                        },
+                        onCreate = {
+                            showPlaylistPicker = false
+                            showCreatePlaylist = true
+                            pendingPlaylistCover = null
+                        }
+                    )
+                }
+
+                if (showYoutube) {
+                    YoutubeDialog(
+                        onDismiss = { showYoutube = false },
+                        onOpenYoutube = { openYoutube(this) },
+                        onDirectDownload = { startAuthorizedDownload(it) }
+                    )
                 }
             }
         }
         requestAudioPermission()
         connectController()
+    }
+
+    private fun loadSavedData() {
+        favorites = prefs.getStringSet("favorites", emptySet())
+            ?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
+
+        val raw = prefs.getString("playlists", null) ?: return
+        runCatching {
+            val arr = JSONArray(raw)
+            val list = mutableListOf<Playlist>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val ids = mutableSetOf<Long>()
+                val songsArray = o.optJSONArray("songs") ?: JSONArray()
+                for (j in 0 until songsArray.length()) ids += songsArray.getLong(j)
+                val cover = if (o.isNull("cover")) null else o.optString("cover", null)
+                list += Playlist(o.getLong("id"), o.getString("name"), cover, ids)
+            }
+            playlists = list
+        }
+    }
+
+    private fun persistFavorites() {
+        prefs.edit().putStringSet("favorites", favorites.map { it.toString() }.toSet()).apply()
+    }
+
+    private fun persistPlaylists() {
+        val arr = JSONArray()
+        playlists.forEach { playlist ->
+            arr.put(JSONObject().apply {
+                put("id", playlist.id)
+                put("name", playlist.name)
+                put("cover", playlist.coverUri ?: JSONObject.NULL)
+                put("songs", JSONArray(playlist.songIds.toList()))
+            })
+        }
+        prefs.edit().putString("playlists", arr.toString()).apply()
+    }
+
+    private fun toggleFavorite(id: Long) {
+        favorites = if (favorites.contains(id)) favorites - id else favorites + id
+        persistFavorites()
+    }
+
+    private fun createPlaylist(name: String) {
+        val clean = name.trim()
+        if (clean.isBlank()) return
+        playlists = playlists + Playlist(
+            System.currentTimeMillis(),
+            clean,
+            pendingPlaylistCover?.toString(),
+            emptySet()
+        )
+        pendingPlaylistCover = null
+        showCreatePlaylist = false
+        persistPlaylists()
+    }
+
+    private fun savePlaylistEdit(id: Long, name: String) {
+        val clean = name.trim()
+        if (clean.isBlank()) return
+        playlists = playlists.map {
+            if (it.id == id) it.copy(
+                name = clean,
+                coverUri = pendingPlaylistCover?.toString() ?: it.coverUri
+            ) else it
+        }
+        pendingPlaylistCover = null
+        editingPlaylistId = null
+        persistPlaylists()
+    }
+
+    private fun deletePlaylist(id: Long) {
+        playlists = playlists.filterNot { it.id == id }
+        persistPlaylists()
+    }
+
+    private fun addSongToPlaylist(playlistId: Long, songId: Long) {
+        playlists = playlists.map {
+            if (it.id == playlistId) it.copy(songIds = it.songIds + songId) else it
+        }
+        persistPlaylists()
+        songForPlaylist = null
+        showPlaylistPicker = false
+        Toast.makeText(this, "Adicionada à playlist", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun removeSongFromPlaylist(playlistId: Long, songId: Long) {
+        playlists = playlists.map {
+            if (it.id == playlistId) it.copy(songIds = it.songIds - songId) else it
+        }
+        persistPlaylists()
     }
 
     private fun requestAudioPermission() {
@@ -150,12 +344,21 @@ class MainActivity : ComponentActivity() {
 
     private fun loadSongs() {
         val result = mutableListOf<Song>()
-        val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID)
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID
+        )
 
-        contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection,
-            MediaStore.Audio.Media.IS_MUSIC + " != 0", null,
-            MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC")?.use { c ->
+        contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            MediaStore.Audio.Media.IS_MUSIC + " != 0",
+            null,
+            MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC"
+        )?.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -165,14 +368,22 @@ class MainActivity : ComponentActivity() {
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
                 val albumId = c.getLong(albumIdCol)
-                val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-                val artUri = Uri.parse("content://media/external/audio/albumart/" + albumId)
-                val art = try { contentResolver.openInputStream(artUri)?.use { BitmapFactory.decodeStream(it) } }
-                catch (_: Exception) { null }
+                val uri = android.content.ContentUris.withAppendedId(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
+                )
+                val artUri = Uri.parse("content://media/external/audio/albumart/$albumId")
+                val art = try {
+                    contentResolver.openInputStream(artUri)?.use { BitmapFactory.decodeStream(it) }
+                } catch (_: Exception) { null }
                 val artist = c.getString(artistCol)
-                result += Song(id, c.getString(titleCol) ?: "Sem título",
+                result += Song(
+                    id,
+                    c.getString(titleCol) ?: "Sem título",
                     if (artist.isNullOrBlank() || artist == "<unknown>") "Artista desconhecido" else artist,
-                    c.getString(albumCol) ?: "", uri, art)
+                    c.getString(albumCol) ?: "",
+                    uri,
+                    art
+                )
             }
         }
         songs = result
@@ -181,9 +392,16 @@ class MainActivity : ComponentActivity() {
     private fun playSong(song: Song) {
         val c = controller ?: return
         val items = songs.map {
-            MediaItem.Builder().setMediaId(it.id.toString()).setUri(it.uri)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(it.title).setArtist(it.artist)
-                    .setAlbumTitle(it.album).build()).build()
+            MediaItem.Builder()
+                .setMediaId(it.id.toString())
+                .setUri(it.uri)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(it.title)
+                        .setArtist(it.artist)
+                        .setAlbumTitle(it.album)
+                        .build()
+                ).build()
         }
         val index = songs.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
         c.setMediaItems(items, index, 0L)
@@ -206,6 +424,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun deleteSong(song: Song) {
+        selectedIds = setOf(song.id)
+        deleteSelected()
+    }
+
+    private fun openYoutube(context: Context) {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/")))
+    }
+
+    private fun startAuthorizedDownload(url: String) {
+        val clean = url.trim()
+        if (clean.isBlank()) return
+        runCatching {
+            val request = DownloadManager.Request(Uri.parse(clean))
+                .setTitle("Sanches Music")
+                .setDescription("Download de arquivo autorizado")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(
+                    Environment.DIRECTORY_MUSIC,
+                    "Sanches Music/" + (Uri.parse(clean).lastPathSegment ?: "musica")
+                )
+            getSystemService(DownloadManager::class.java).enqueue(request)
+            Toast.makeText(this, "Download iniciado", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(this, "URL inválida", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onDestroy() {
         controller?.release()
         super.onDestroy()
@@ -214,54 +460,143 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun SanchesTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = darkColorScheme(
-        background = Ink, surface = Panel, primary = Red, secondary = Red,
-        onBackground = Color.White, onSurface = Color.White
-    ), content = content)
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            background = Ink,
+            surface = Panel,
+            primary = Red,
+            secondary = Red,
+            onBackground = Color.White,
+            onSurface = Color.White
+        ),
+        content = content
+    )
 }
 
 @Composable
 private fun Home(
-    songs: List<Song>, current: Song?, playing: Boolean, query: String, selectedIds: Set<Long>, showSettings: Boolean,
-    onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit,
-    onSelect: (Long) -> Unit, onDelete: () -> Unit, onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit
+    songs: List<Song>,
+    current: Song?,
+    playing: Boolean,
+    query: String,
+    selectedIds: Set<Long>,
+    favorites: Set<Long>,
+    playlists: List<Playlist>,
+    showSettings: Boolean,
+    onQuery: (String) -> Unit,
+    onSong: (Song) -> Unit,
+    onMiniOpen: () -> Unit,
+    onToggle: () -> Unit,
+    onSelect: (Long) -> Unit,
+    onDelete: () -> Unit,
+    onClearSelection: () -> Unit,
+    onSettings: (Boolean) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
+    onOpenPlaylistPicker: (Long) -> Unit,
+    onRemoveFromPlaylist: (Long, Long) -> Unit,
+    onDeleteSong: (Song) -> Unit,
+    onCreatePlaylist: () -> Unit,
+    onEditPlaylist: (Long) -> Unit,
+    onDeletePlaylist: (Long) -> Unit,
+    onYoutube: () -> Unit,
+    onRefresh: () -> Unit,
+    onPickCover: () -> Unit
 ) {
     var artistFilter by remember { mutableStateOf<String?>(null) }
-    val filtered = remember(songs, query, artistFilter) {
-        songs.filter {
-            (query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true)) &&
-            (artistFilter == null || it.artist.equals(artistFilter, true))
+    var favoritesOnly by remember { mutableStateOf(false) }
+    var activePlaylistId by remember { mutableStateOf<Long?>(null) }
+    var menuSongId by remember { mutableStateOf<Long?>(null) }
+    val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
+
+    val filtered = remember(songs, query, artistFilter, favoritesOnly, activePlaylistId, playlists, favorites) {
+        songs.filter { song ->
+            val textMatch = query.isBlank() ||
+                song.title.contains(query, true) ||
+                song.artist.contains(query, true) ||
+                song.album.contains(query, true)
+            val artistMatch = artistFilter == null || song.artist.equals(artistFilter, true)
+            val favoriteMatch = !favoritesOnly || favorites.contains(song.id)
+            val playlistMatch = activePlaylist == null || activePlaylist.songIds.contains(song.id)
+            textMatch && artistMatch && favoriteMatch && playlistMatch
         }
     }
+
     val artists = remember(songs) {
-        songs.map { it.artist.trim() }.filter { it.isNotBlank() && it != "Artista desconhecido" }
-            .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+        songs.map { it.artist.trim() }
+            .filter { it.isNotBlank() && it != "Artista desconhecido" }
+            .distinct()
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
+    val albums = remember(songs) {
+        songs.map { it.album }.filter { it.isNotBlank() }.distinct().size
     }
 
-    Box(Modifier.fillMaxSize().background(
-        Brush.verticalGradient(listOf(Color(0xFF050505), Color(0xFF0B0B0B), Color(0xFF180607)))
-    )) {
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(listOf(Color(0xFF050505), Color(0xFF0B0B0B), Color(0xFF180607)))
+        )
+    ) {
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column(Modifier.weight(1f)) {
                     Text("SANCHES", color = Red, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-                    Text("Music", fontSize = 30.sp, fontWeight = FontWeight.Black)
+                    Text("Music", color = Red, fontSize = 30.sp, fontWeight = FontWeight.Black)
                 }
                 Surface(shape = CircleShape, color = Panel2, modifier = Modifier.size(46.dp)) {
-                    IconButton(onClick = { onSettings(true) }) { Icon(Icons.Default.Settings, "Configurações", tint = TextSoft) }
+                    IconButton(onClick = { onSettings(true) }) {
+                        Icon(Icons.Default.Settings, "Configurações", tint = Red)
+                    }
                 }
             }
 
             SearchBar(query, onQuery)
 
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 QuickChip("FAIXAS", songs.size.toString(), Red)
                 QuickChip("BANDAS", artists.size.toString(), Red)
-                QuickChip("ÁLBUNS", songs.map { it.album }.filter { it.isNotBlank() }.distinct().size.toString(), Red)
+                QuickChip("ÁLBUNS", albums.toString(), Red)
             }
+
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !favoritesOnly && activePlaylistId == null,
+                    onClick = { favoritesOnly = false; activePlaylistId = null },
+                    label = { Text("Todas") }
+                )
+                FilterChip(
+                    selected = favoritesOnly,
+                    onClick = { favoritesOnly = !favoritesOnly; activePlaylistId = null },
+                    label = { Text("♥ Favoritos") }
+                )
+                FilterChip(
+                    selected = activePlaylistId != null,
+                    onClick = {
+                        if (playlists.isNotEmpty()) {
+                            activePlaylistId = playlists.first().id
+                            favoritesOnly = false
+                        }
+                    },
+                    label = { Text("♫ Playlists") }
+                )
+            }
+
             if (artists.isNotEmpty()) {
-                Text("Bandas e artistas", Modifier.padding(start = 22.dp, top = 2.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Bandas e artistas",
+                    color = Red,
+                    modifier = Modifier.padding(start = 22.dp, top = 16.dp),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -281,61 +616,358 @@ private fun Home(
                 }
             }
 
-            if (current != null && selectedIds.isEmpty()) NowCard(current, playing, onMiniOpen, onToggle)
-            if (selectedIds.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(selectedIds.size.toString() + " selecionada(s)", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    IconButton(onClearSelection) { Icon(Icons.Default.Close, "Cancelar", tint = TextSoft) }
-                    FilledIconButton(onDelete, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)) {
-                        Icon(Icons.Default.Delete, "Apagar")
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    when {
+                        activePlaylist != null -> activePlaylist.name
+                        favoritesOnly -> "Favoritos"
+                        query.isBlank() -> "Sua biblioteca"
+                        else -> "Resultados"
+                    },
+                    color = Red,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(filtered.size.toString(), color = TextSoft, fontSize = 14.sp)
+            }
+
+            if (playlists.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    playlists.forEach { playlist ->
+                        PlaylistCard(
+                            playlist = playlist,
+                            selected = activePlaylistId == playlist.id,
+                            onClick = {
+                                activePlaylistId = if (activePlaylistId == playlist.id) null else playlist.id
+                                favoritesOnly = false
+                            },
+                            onEdit = { onEditPlaylist(playlist.id) }
+                        )
                     }
+                    AddPlaylistCard(onCreatePlaylist)
                 }
             } else {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (query.isBlank()) "Sua biblioteca" else "Resultados", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    Text(filtered.size.toString(), color = TextSoft, fontSize = 14.sp)
+                OutlinedButton(
+                    onClick = onCreatePlaylist,
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 5.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Red)
+                ) {
+                    Icon(Icons.Default.Add, null, tint = Red)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Criar playlist", color = Red)
                 }
             }
 
-            LazyColumn(Modifier.weight(1f),
+            if (current != null && selectedIds.isEmpty()) NowCard(current, playing, onMiniOpen, onToggle)
+
+            if (selectedIds.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(selectedIds.size.toString() + " selecionada(s)", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClearSelection) { Icon(Icons.Default.Close, "Cancelar", tint = TextSoft) }
+                    FilledIconButton(
+                        onClick = onDelete,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)
+                    ) {
+                        Icon(Icons.Default.Delete, "Apagar")
+                    }
+                }
+            }
+
+            LazyColumn(
+                Modifier.weight(1f),
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 110.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
                 items(filtered, key = { it.id }) { song ->
-                    TrackCard(song, current?.id == song.id && playing, selectedIds.contains(song.id), selectedIds.isNotEmpty(), onSong, onSelect)
+                    TrackCard(
+                        song = song,
+                        active = current?.id == song.id && playing,
+                        selected = selectedIds.contains(song.id),
+                        selectionMode = selectedIds.isNotEmpty(),
+                        favorite = favorites.contains(song.id),
+                        onClick = onSong,
+                        onSelect = onSelect,
+                        onMore = { menuSongId = song.id }
+                    )
                 }
             }
 
             if (current != null) CompactPlayer(current, playing, onMiniOpen, onToggle)
         }
-        if (showSettings) SettingsDialog(onClose = { onSettings(false) }, onRescan = { onSettings(false) })
+
+        FloatingActionButton(
+            onClick = onYoutube,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 72.dp),
+            containerColor = Red,
+            contentColor = Color.White
+        ) {
+            Icon(Icons.Default.Download, "Baixar música")
+        }
+
+        if (showSettings) SettingsDialog(
+            onClose = { onSettings(false) },
+            onRescan = { onRefresh(); onSettings(false) }
+        )
+
+        val menuSong = songs.firstOrNull { it.id == menuSongId }
+        if (menuSong != null) {
+            TrackMenuDialog(
+                song = menuSong,
+                favorite = favorites.contains(menuSong.id),
+                canRemoveFromPlaylist = activePlaylistId != null,
+                onDismiss = { menuSongId = null },
+                onFavorite = { onToggleFavorite(menuSong.id); menuSongId = null },
+                onPlaylist = { onOpenPlaylistPicker(menuSong.id); menuSongId = null },
+                onRemoveFromPlaylist = {
+                    activePlaylistId?.let { onRemoveFromPlaylist(it, menuSong.id) }
+                    menuSongId = null
+                },
+                onDelete = { onDeleteSong(menuSong); menuSongId = null }
+            )
+        }
     }
 }
 
 @Composable
 private fun SettingsDialog(onClose: () -> Unit, onRescan: () -> Unit) {
-    AlertDialog(onDismissRequest = onClose, containerColor = Panel,
-        title = { Text("Configurações", fontWeight = FontWeight.Bold) },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Sanches Music", color = Red, fontWeight = FontWeight.Bold)
-            Text("Biblioteca local • Reprodução em segundo plano", color = TextSoft)
-            OutlinedButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Atualizar biblioteca")
+    AlertDialog(
+        onDismissRequest = onClose,
+        containerColor = Panel,
+        title = { Text("Configurações", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Sanches Music", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Biblioteca local • Reprodução em segundo plano", color = TextSoft)
+                OutlinedButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Atualizar biblioteca")
+                }
             }
-        } },
-        confirmButton = { TextButton(onClick = onClose) { Text("Fechar", color = Red) } })
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun TrackMenuDialog(
+    song: Song,
+    favorite: Boolean,
+    canRemoveFromPlaylist: Boolean,
+    onDismiss: () -> Unit,
+    onFavorite: () -> Unit,
+    onPlaylist: () -> Unit,
+    onRemoveFromPlaylist: () -> Unit,
+    onDelete: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text(song.title, color = Red, fontWeight = FontWeight.Bold, maxLines = 2) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                MenuAction(if (favorite) "Remover dos favoritos" else "Adicionar aos favoritos", Icons.Default.Favorite, onFavorite)
+                MenuAction("Adicionar à playlist", Icons.Default.PlaylistAdd, onPlaylist)
+                if (canRemoveFromPlaylist) {
+                    MenuAction("Remover desta playlist", Icons.Default.RemoveCircleOutline, onRemoveFromPlaylist)
+                }
+                MenuAction("Apagar música do celular", Icons.Default.Delete, onDelete)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun MenuAction(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Icon(icon, null, tint = Red)
+        Spacer(Modifier.width(10.dp))
+        Text(text, color = Color.White)
+    }
+}
+
+@Composable
+private fun PlaylistPickerDialog(
+    playlists: List<Playlist>,
+    onDismiss: () -> Unit,
+    onChoose: (Long) -> Unit,
+    onCreate: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Adicionar à playlist", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                playlists.forEach { playlist ->
+                    TextButton(onClick = { onChoose(playlist.id) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.QueueMusic, null, tint = Red)
+                        Spacer(Modifier.width(8.dp))
+                        Text(playlist.name, color = Color.White)
+                    }
+                }
+                TextButton(onClick = onCreate, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Add, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Criar nova playlist", color = Red)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
+}
+
+@Composable
+private fun CreatePlaylistDialog(
+    coverUri: Uri?,
+    onPickCover: () -> Unit,
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Nova playlist", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PlaylistCover(coverUri?.toString(), 120.dp)
+                OutlinedButton(onClick = onPickCover, border = androidx.compose.foundation.BorderStroke(1.dp, Red)) {
+                    Icon(Icons.Default.Image, null, tint = Red)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Escolher capa", color = Red)
+                }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nome da playlist") },
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onCreate(name) }) { Text("Criar", color = Red) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
+    )
+}
+
+@Composable
+private fun EditPlaylistDialog(
+    playlist: Playlist,
+    coverUri: Uri?,
+    onPickCover: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var name by remember(playlist.id) { mutableStateOf(playlist.name) }
+    val shownCover = coverUri?.toString() ?: playlist.coverUri
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Editar playlist", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PlaylistCover(shownCover, 120.dp)
+                OutlinedButton(onClick = onPickCover, border = androidx.compose.foundation.BorderStroke(1.dp, Red)) {
+                    Icon(Icons.Default.Image, null, tint = Red)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Alterar capa", color = Red)
+                }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nome da playlist") },
+                    singleLine = true
+                )
+                Text("Para apagar a playlist, use a opção de gerenciamento na tela principal.", color = TextSoft, fontSize = 11.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(name) }) { Text("Salvar", color = Red) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
+    )
+}
+
+@Composable
+private fun YoutubeDialog(
+    onDismiss: () -> Unit,
+    onOpenYoutube: () -> Unit,
+    onDirectDownload: (String) -> Unit
+) {
+    var url by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Baixar música", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "O Sanches Music pode baixar arquivos de áudio por URL direta quando o download é autorizado pelo site ou pelo dono do conteúdo.",
+                    color = TextSoft,
+                    fontSize = 12.sp
+                )
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("URL direta do arquivo") },
+                    placeholder = { Text("https://.../musica.mp3") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = { onDirectDownload(url); onDismiss() },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Red)
+                ) {
+                    Icon(Icons.Default.Download, null)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Baixar arquivo")
+                }
+                OutlinedButton(
+                    onClick = onOpenYoutube,
+                    modifier = Modifier.fillMaxWidth(),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Red)
+                ) {
+                    Icon(Icons.Default.YouTube, null, tint = Red)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Abrir YouTube", color = Red)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
+    )
 }
 
 @Composable
 private fun SearchBar(value: String, onValue: (String) -> Unit) {
-    OutlinedTextField(value, onValue, Modifier.fillMaxWidth().padding(horizontal = 22.dp),
-        singleLine = true, placeholder = { Text("Buscar música, artista ou álbum", color = TextSoft) },
-        leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSoft) },
-        trailingIcon = { if (value.isNotEmpty()) IconButton({ onValue("") }) { Icon(Icons.Default.Close, null, tint = TextSoft) } },
+    OutlinedTextField(
+        value,
+        onValue,
+        Modifier.fillMaxWidth().padding(horizontal = 22.dp),
+        singleLine = true,
+        placeholder = { Text("Buscar música, artista ou álbum", color = TextSoft) },
+        leadingIcon = { Icon(Icons.Default.Search, null, tint = Red) },
+        trailingIcon = {
+            if (value.isNotEmpty()) IconButton({ onValue("") }) { Icon(Icons.Default.Close, null, tint = TextSoft) }
+        },
         shape = RoundedCornerShape(18.dp),
-        colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Panel, focusedContainerColor = Panel2,
-            unfocusedBorderColor = Color.Transparent, focusedBorderColor = Violet))
+        colors = OutlinedTextFieldDefaults.colors(
+            unfocusedContainerColor = Panel,
+            focusedContainerColor = Panel2,
+            unfocusedBorderColor = Color.Transparent,
+            focusedBorderColor = Red
+        )
+    )
 }
 
 @Composable
@@ -343,22 +975,143 @@ private fun QuickChip(label: String, value: String, accent: Color) {
     Surface(shape = RoundedCornerShape(15.dp), color = Panel) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
             Text(label, fontSize = 10.sp, color = accent, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(value, fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun PlaylistCard(
+    playlist: Playlist,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onEdit: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.width(150.dp).clickable { onClick() },
+        shape = RoundedCornerShape(18.dp),
+        color = if (selected) Color(0xFF2A090C) else Panel
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Box {
+                PlaylistCover(playlist.coverUri, 132.dp)
+                IconButton(onClick = onEdit, modifier = Modifier.align(Alignment.TopEnd).size(34.dp)) {
+                    Icon(Icons.Default.MoreHoriz, null, tint = Color.White)
+                }
+            }
+            Text(playlist.name, color = if (selected) RedBright else Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(playlist.songIds.size.toString() + " faixas", color = TextSoft, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun AddPlaylistCard(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.width(150.dp).height(182.dp).clickable { onClick() },
+        shape = RoundedCornerShape(18.dp),
+        color = Panel
+    ) {
+        Column(
+            Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(Icons.Default.AddCircle, null, tint = Red, modifier = Modifier.size(42.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("Nova playlist", color = Red, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun PlaylistCover(uriString: String?, size: Dp) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, uriString) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                if (uriString.isNullOrBlank()) null
+                else context.contentResolver.openInputStream(Uri.parse(uriString))?.use { BitmapFactory.decodeStream(it) }
+            }.getOrNull()
+        }
+    }
+    if (bitmap != null) {
+        Image(bitmap!!.asImageBitmap(), null, Modifier.size(size).clip(RoundedCornerShape(15.dp)), contentScale = ContentScale.Crop)
+    } else {
+        Box(
+            Modifier.size(size).clip(RoundedCornerShape(15.dp)).background(
+                Brush.linearGradient(listOf(Color(0xFF35070A), Red))
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.QueueMusic, null, tint = Color.White, modifier = Modifier.size(size / 3))
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrackCard(
+    song: Song,
+    active: Boolean,
+    selected: Boolean,
+    selectionMode: Boolean,
+    favorite: Boolean,
+    onClick: (Song) -> Unit,
+    onSelect: (Long) -> Unit,
+    onMore: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .combinedClickable(
+                onClick = { if (selectionMode) onSelect(song.id) else onClick(song) },
+                onLongClick = { onSelect(song.id) }
+            )
+            .background(if (selected) Color(0xFF3A0B0F) else if (active) Color(0xFF21090B) else Color.Transparent)
+            .padding(9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Artwork(song.art, 58.dp)
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                song.title,
+                color = if (selected || active) RedBright else Color.White,
+                fontSize = 17.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1
+            )
+            Text(
+                song.artist + if (song.album.isNotBlank()) "  •  " + song.album else "",
+                color = TextSoft,
+                fontSize = 13.sp,
+                maxLines = 1
+            )
+        }
+        if (favorite) Icon(Icons.Default.Favorite, null, tint = Red, modifier = Modifier.size(18.dp))
+        if (selected) {
+            Icon(Icons.Default.CheckCircle, null, tint = Red, modifier = Modifier.padding(horizontal = 8.dp))
+        } else {
+            IconButton(onClick = onMore) { Icon(Icons.Default.MoreHoriz, "Mais opções", tint = Red) }
         }
     }
 }
 
 @Composable
 private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -> Unit) {
-    Surface(Modifier.fillMaxWidth().padding(horizontal = 22.dp).clickable { open() },
-        shape = RoundedCornerShape(24.dp), color = Panel2) {
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 22.dp).clickable { open() },
+        shape = RoundedCornerShape(24.dp),
+        color = Panel2
+    ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Artwork(song.art, 74.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("TOCANDO AGORA", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.height(4.dp))
-                Text(song.title, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(song.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(song.artist, color = TextSoft, fontSize = 13.sp, maxLines = 1)
             }
             FilledIconButton(onClick = toggle, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)) {
@@ -368,43 +1121,25 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun TrackCard(song: Song, active: Boolean, selected: Boolean, selectionMode: Boolean, onClick: (Song) -> Unit, onSelect: (Long) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).combinedClickable(onClick = { if (selectionMode) onSelect(song.id) else onClick(song) }, onLongClick = { onSelect(song.id) })
-        .background(if (selected) Color(0xFF3A0B0F) else if (active) Color(0xFF21090B) else Color.Transparent).padding(9.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Artwork(song.art, 58.dp)
-        Spacer(Modifier.width(13.dp))
-        Column(Modifier.weight(1f)) {
-            Text(song.title, color = if (selected || active) RedBright else Color.White, fontSize = 17.sp,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
-            Text(song.artist + if (song.album.isNotBlank()) "  •  " + song.album else "",
-                color = TextSoft, fontSize = 13.sp, maxLines = 1)
-        }
-        if (selected) {
-            Icon(Icons.Default.CheckCircle, null, tint = Red, modifier = Modifier.padding(horizontal = 10.dp))
-        } else {
-            IconButton(onClick = {}) { Icon(Icons.Default.MoreHoriz, null, tint = TextSoft) }
-        }
-    }
-}
-
 @Composable
 private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle: () -> Unit) {
-    Surface(Modifier.fillMaxWidth().clickable { open() }, color = Color(0xFF101329), tonalElevation = 8.dp) {
+    Surface(Modifier.fillMaxWidth().clickable { open() }, color = Color(0xFF101010), tonalElevation = 8.dp) {
         Column {
-            LinearProgressIndicator(progress = { if (playing) 0.45f else 0f },
-                Modifier.fillMaxWidth().height(2.dp), color = Mint, trackColor = Panel2)
+            LinearProgressIndicator(
+                progress = { if (playing) 0.45f else 0f },
+                Modifier.fillMaxWidth().height(2.dp),
+                color = Red,
+                trackColor = Panel2
+            )
             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Artwork(song.art, 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(song.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(song.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     Text(song.artist, fontSize = 12.sp, color = TextSoft, maxLines = 1)
                 }
-                IconButton(toggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null) }
-                Icon(Icons.Default.QueueMusic, null, tint = TextSoft, modifier = Modifier.padding(horizontal = 4.dp))
+                IconButton(toggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Red) }
+                Icon(Icons.Default.QueueMusic, null, tint = Red, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }
     }
@@ -412,51 +1147,91 @@ private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle
 
 @Composable
 private fun FullPlayer(
-    song: Song, playing: Boolean, position: Long, duration: Long,
-    onBack: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit,
-    onNext: () -> Unit, onPrev: () -> Unit
+    song: Song,
+    playing: Boolean,
+    position: Long,
+    duration: Long,
+    onBack: () -> Unit,
+    onToggle: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onNext: () -> Unit,
+    onPrev: () -> Unit,
+    onFavorite: () -> Unit
 ) {
-    Box(Modifier.fillMaxSize().background(
-        Brush.verticalGradient(listOf(Color(0xFF30070A), Ink, Color(0xFF080808)))
-    )) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF30070A), Ink, Color(0xFF080808))))) {
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onBack) { Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(32.dp)) }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("NOW PLAYING", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Text("Sanches Music", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("NOW PLAYING", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text("Sanches Music", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
-                IconButton({}) { Icon(Icons.Default.MoreVert, null) }
+                IconButton(onFavorite) { Icon(Icons.Default.Favorite, null, tint = Red) }
             }
-
             Spacer(Modifier.height(45.dp))
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Artwork(song.art, 310.dp) }
             Spacer(Modifier.height(30.dp))
-            Text(song.title, fontSize = 28.sp, fontWeight = FontWeight.Black, maxLines = 2)
+            Text(song.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, maxLines = 2)
             Text(song.artist, color = TextSoft, fontSize = 17.sp, maxLines = 1)
             if (song.album.isNotBlank()) Text(song.album, color = TextSoft, fontSize = 13.sp, maxLines = 1)
-
             Spacer(Modifier.weight(1f))
-            Slider(value = position.toFloat().coerceIn(0f, duration.toFloat()),
-                onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..duration.toFloat(),
-                colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Red))
+            Slider(
+                value = position.toFloat().coerceIn(0f, duration.toFloat()),
+                onValueChange = { onSeek(it.toLong()) },
+                valueRange = 0f..duration.toFloat(),
+                colors = SliderDefaults.colors(thumbColor = Red, activeTrackColor = Red)
+            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(formatTime(position), color = TextSoft, fontSize = 12.sp)
                 Text(formatTime(duration), color = TextSoft, fontSize = 12.sp)
             }
-
             Spacer(Modifier.height(20.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
-                IconButton({}) { Icon(Icons.Default.Shuffle, null, tint = TextSoft) }
+                IconButton({}) { Icon(Icons.Default.Shuffle, null, tint = Red) }
                 IconButton(onPrev) { Icon(Icons.Default.SkipPrevious, null, Modifier.size(38.dp)) }
-                FilledIconButton(onToggle, Modifier.size(76.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Mint, contentColor = Ink)) {
+                FilledIconButton(
+                    onToggle,
+                    Modifier.size(76.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red, contentColor = Color.White)
+                ) {
                     Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(40.dp))
                 }
                 IconButton(onNext) { Icon(Icons.Default.SkipNext, null, Modifier.size(38.dp)) }
-                IconButton({}) { Icon(Icons.Default.Repeat, null, tint = TextSoft) }
+                IconButton({}) { Icon(Icons.Default.Repeat, null, tint = Red) }
             }
             Spacer(Modifier.height(35.dp))
+        }
+    }
+}
+
+@Composable
+private fun SearchBar(value: String, onValue: (String) -> Unit) {
+    OutlinedTextField(
+        value,
+        onValue,
+        Modifier.fillMaxWidth().padding(horizontal = 22.dp),
+        singleLine = true,
+        placeholder = { Text("Buscar música, artista ou álbum", color = TextSoft) },
+        leadingIcon = { Icon(Icons.Default.Search, null, tint = Red) },
+        trailingIcon = {
+            if (value.isNotEmpty()) IconButton({ onValue("") }) { Icon(Icons.Default.Close, null, tint = TextSoft) }
+        },
+        shape = RoundedCornerShape(18.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            unfocusedContainerColor = Panel,
+            focusedContainerColor = Panel2,
+            unfocusedBorderColor = Color.Transparent,
+            focusedBorderColor = Red
+        )
+    )
+}
+
+@Composable
+private fun QuickChip(label: String, value: String, accent: Color) {
+    Surface(shape = RoundedCornerShape(15.dp), color = Panel) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+            Text(label, fontSize = 10.sp, color = accent, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(value, fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -466,8 +1241,12 @@ private fun Artwork(bitmap: Bitmap?, size: Dp) {
     if (bitmap != null) {
         Image(bitmap.asImageBitmap(), null, Modifier.size(size).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop)
     } else {
-        Box(Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Color(0xFF5C0006), RedBright))),
-            contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(
+                Brush.linearGradient(listOf(Color(0xFF5C0006), RedBright))
+            ),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(Icons.Default.MusicNote, null, Modifier.size(size / 3), tint = Color.White)
         }
     }
