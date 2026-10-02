@@ -227,7 +227,6 @@ class MainActivity : ComponentActivity() {
                 if (showEqualizer) EqualizerDialog({ showEqualizer = false }) { applyEqualizerPreset(it) }
                 if (showBackup) BackupDialog({ showBackup = false }, { exportBackup() }, { importBackup() })
                 if (showDuplicates) DuplicateDialog(songs, { showDuplicates = false }) { }
-                { /* duplicate scanner is informational; deletion remains through normal multi-select */ }
                 val editorSong = songs.firstOrNull { it.id == showEditorSongId }
                 if (editorSong != null) SongEditorDialog(editorSong, { showEditorSongId = null }) { t, a, al -> editSong(editorSong, t, a, al) }
 
