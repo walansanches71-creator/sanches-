@@ -864,33 +864,59 @@ private fun PlaylistPickerDialog(
 
 @Composable
 private fun CreatePlaylistDialog(
-    coverUri: Uri?,
-    onPickCover: () -> Unit,
-    onDismiss: () -> Unit,
-    onCreate: (String) -> Unit
+    songs: List<Song>, initialSongId: Long?, coverUri: Uri?,
+    onPickCover: () -> Unit, onDismiss: () -> Unit,
+    onCreate: (String, Set<Long>) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
+    var selectedIds by remember(initialSongId) { mutableStateOf(if (initialSongId != null) setOf(initialSongId) else emptySet()) }
+    var filter by remember { mutableStateOf("") }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Panel,
+        onDismissRequest = onDismiss, containerColor = Panel,
         title = { Text("Nova playlist", color = Red, fontWeight = FontWeight.Bold) },
         text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                PlaylistCover(coverUri?.toString(), 120.dp)
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PlaylistCover(coverUri?.toString(), 95.dp)
                 OutlinedButton(onClick = onPickCover, border = androidx.compose.foundation.BorderStroke(1.dp, Red)) {
                     Icon(Icons.Default.Image, null, tint = Red)
                     Spacer(Modifier.width(6.dp))
                     Text("Escolher capa", color = Red)
                 }
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome da playlist") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nome da playlist") },
-                    singleLine = true
+                    value = filter, onValueChange = { filter = it }, label = { Text("Buscar música para adicionar") },
+                    singleLine = true, leadingIcon = { Icon(Icons.Default.Search, null, tint = Red) }, modifier = Modifier.fillMaxWidth()
                 )
+                Text(selectedIds.size.toString() + " faixa(s) selecionada(s)", color = Red, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())
+                val visibleSongs = songs.filter {
+                    filter.isBlank() || it.title.contains(filter, true) || it.artist.contains(filter, true) || it.album.contains(filter, true)
+                }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(min = 70.dp, max = 280.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    items(visibleSongs, key = { it.id }) { song ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                                selectedIds = if (selectedIds.contains(song.id)) selectedIds - song.id else selectedIds + song.id
+                            }.padding(vertical = 4.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedIds.contains(song.id),
+                                onCheckedChange = { checked -> selectedIds = if (checked) selectedIds + song.id else selectedIds - song.id },
+                                colors = CheckboxDefaults.colors(checkedColor = Red)
+                            )
+                            Artwork(song.albumId, song.art, 40.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(song.title, color = Color.White, maxLines = 1)
+                                Text(song.artist, color = TextSoft, fontSize = 12.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { onCreate(name) }) { Text("Criar", color = Red) } },
+        confirmButton = { TextButton(onClick = { onCreate(name, selectedIds) }) { Text("Criar", color = Red) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
     )
 }
