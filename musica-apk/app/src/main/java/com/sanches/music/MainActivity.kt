@@ -683,6 +683,7 @@ class MainActivity : ComponentActivity() {
                 ).build()
         }
         val index = queue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+        playbackQueue = queue
         c.setMediaItems(items, index, 0L)
         c.prepare()
         c.play()
