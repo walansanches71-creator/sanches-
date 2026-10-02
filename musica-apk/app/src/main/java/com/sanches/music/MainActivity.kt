@@ -194,7 +194,7 @@ class MainActivity : ComponentActivity() {
                         onCreatePlaylist = { showCreatePlaylist = true; pendingPlaylistCover = null },
                         onEditPlaylist = { id -> editingPlaylistId = id; pendingPlaylistCover = null },
                         onDeletePlaylist = { deletePlaylist(it) },
-                        onYoutube = { showYoutube = true },
+                        onYoutube = { openYoutube(this) },
                         onRefresh = { loadSongs() },
                         onPickCover = { coverPickerLauncher.launch("image/*") },
                         onQueue = { showQueue = true },
