@@ -221,7 +221,7 @@ private fun SanchesTheme(content: @Composable () -> Unit) {
 
 @Composable
 private fun Home(
-    songs: List<Song>, current: Song?, playing: Boolean, query: String, selectedIds: Set<Long>,
+    songs: List<Song>, current: Song?, playing: Boolean, query: String, selectedIds: Set<Long>, showSettings: Boolean,
     onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit,
     onSelect: (Long) -> Unit, onDelete: () -> Unit, onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit
 ) {
