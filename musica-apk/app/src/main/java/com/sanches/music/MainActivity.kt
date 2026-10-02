@@ -1,8 +1,6 @@
 package com.sanches.music
 
 import android.Manifest
-import android.app.DownloadManager
-import android.app.PictureInPictureParams
 import android.content.ComponentName
 import android.content.ContentUris
 import android.content.Context
@@ -19,12 +17,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.content.res.Configuration
 import android.provider.MediaStore
 import android.widget.Toast
 import android.media.MediaMetadataRetriever
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
@@ -48,7 +43,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -59,7 +53,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import android.util.LruCache
-import android.util.Rational
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -117,11 +110,6 @@ class MainActivity : ComponentActivity() {
     private var playlists by mutableStateOf<List<Playlist>>(emptyList())
     private var showCreatePlaylist by mutableStateOf(false)
     private var showPlaylistPicker by mutableStateOf(false)
-    private var showYoutube by mutableStateOf(false)
-    private var youtubePip by mutableStateOf(false)
-    private var youtubeReturnSongId by mutableStateOf<Long?>(null)
-    private var youtubeReturnPosition by mutableLongStateOf(0L)
-    private var youtubeReturnWasPlaying by mutableStateOf(false)
     private var editingPlaylistId by mutableStateOf<Long?>(null)
     private var pendingPlaylistCover by mutableStateOf<Uri?>(null)
     private var songForPlaylist by mutableStateOf<Long?>(null)
@@ -214,6 +202,8 @@ class MainActivity : ComponentActivity() {
                         onDelete = { deleteSelected() },
                         onClearSelection = { selectedIds = emptySet() },
                         onSettings = { showSettings = it; if (!it) loadSongs() },
+                        onClearHistory = { clearHistory() },
+                        onClearPlayCounts = { clearPlayCounts() },
                         onToggleFavorite = { toggleFavorite(it) },
                         onOpenPlaylistPicker = { songForPlaylist = it; showPlaylistPicker = true },
                         onRemoveFromPlaylist = { playlistId, songId -> removeSongFromPlaylist(playlistId, songId) },
@@ -221,7 +211,6 @@ class MainActivity : ComponentActivity() {
                         onCreatePlaylist = { showCreatePlaylist = true; pendingPlaylistCover = null },
                         onEditPlaylist = { id -> editingPlaylistId = id; pendingPlaylistCover = null },
                         onDeletePlaylist = { deletePlaylist(it) },
-                        onYoutube = { openYoutube(this) },
                         onRefresh = { loadSongs() },
                         onPickCover = { coverPickerLauncher.launch(arrayOf("image/*")) },
                         onQueue = { showQueue = true },
@@ -285,13 +274,6 @@ class MainActivity : ComponentActivity() {
                 val editorSong = songs.firstOrNull { it.id == showEditorSongId }
                 if (editorSong != null) SongEditorDialog(editorSong, { showEditorSongId = null }) { t, a, al -> editSong(editorSong, t, a, al) }
 
-                if (showYoutube) {
-                    YoutubeScreen(
-                        inPip = youtubePip,
-                        onDismiss = { closeYoutubeAndResumeMusic() },
-                        onPip = { enterYoutubePip() }
-                    )
-                }
             }
         }
         requestAudioPermission()
@@ -485,6 +467,18 @@ class MainActivity : ComponentActivity() {
         persistPlaylists()
     }
 
+    private fun clearHistory() {
+        historyIds = emptyList()
+        prefs.edit().remove("history").apply()
+        Toast.makeText(this, "Histórico limpo", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun clearPlayCounts() {
+        playCounts = emptyMap()
+        prefs.edit().remove("play_counts").apply()
+        Toast.makeText(this, "Contagem de músicas zerada", Toast.LENGTH_SHORT).show()
+    }
+
     private fun requestAudioPermission() {
         val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
         else Manifest.permission.READ_EXTERNAL_STORAGE
@@ -524,10 +518,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onBackPressed() {
-        if (showYoutube && !youtubePip) {
-            closeYoutubeAndResumeMusic()
-            return
-        }
         if (showPlayer) {
             showPlayer = false
             return
@@ -549,19 +539,6 @@ class MainActivity : ComponentActivity() {
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             canvas.drawColor(android.graphics.Color.rgb(229, 9, 20))
-
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = android.graphics.Color.WHITE
-                textAlign = Paint.Align.CENTER
-                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
-            }
-
-            paint.textSize = 190f
-            canvas.drawText("☠", size / 2f, 270f, paint)
-            paint.textSize = 82f
-            canvas.drawText("☠", 92f, 445f, paint)
-            canvas.drawText("☠", 420f, 445f, paint)
-
             ByteArrayOutputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 out.toByteArray()
@@ -653,77 +630,6 @@ class MainActivity : ComponentActivity() {
         deleteSelected()
     }
 
-    private fun openYoutube(context: Context) {
-        val c = controller
-        youtubeReturnSongId = current?.id ?: c?.currentMediaItem?.mediaId?.toLongOrNull()
-        youtubeReturnPosition = c?.currentPosition?.coerceAtLeast(0L) ?: 0L
-        youtubeReturnWasPlaying = c?.isPlaying == true
-        showYoutube = true
-        if (Build.VERSION.SDK_INT >= 31) {
-            setPictureInPictureParams(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .setAutoEnterEnabled(true)
-                    .build()
-            )
-        }
-    }
-
-    private fun closeYoutubeAndResumeMusic() {
-        showYoutube = false
-        youtubePip = false
-
-        if (!youtubeReturnWasPlaying) {
-            youtubeReturnSongId = null
-            return
-        }
-
-        val c = controller ?: return
-        val id = youtubeReturnSongId
-        val index = songs.indexOfFirst { it.id == id }
-
-        if (index >= 0) {
-            runCatching {
-                c.seekTo(index, youtubeReturnPosition)
-                c.play()
-                current = songs[index]
-            }
-        } else {
-            runCatching { c.seekTo(youtubeReturnPosition); c.play() }
-        }
-
-        youtubeReturnSongId = null
-        youtubeReturnPosition = 0L
-        youtubeReturnWasPlaying = false
-    }
-
-    private fun enterYoutubePip() {
-        val c = controller
-        if (c != null) {
-            youtubeReturnSongId = current?.id ?: c.currentMediaItem?.mediaId?.toLongOrNull()
-            youtubeReturnPosition = c.currentPosition.coerceAtLeast(0L)
-            youtubeReturnWasPlaying = c.isPlaying
-            if (youtubeReturnWasPlaying) c.pause()
-        }
-
-        if (Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(16, 9))
-                .apply {
-                    if (Build.VERSION.SDK_INT >= 31) setAutoEnterEnabled(true)
-                }
-                .build()
-            enterPictureInPictureMode(params)
-        } else {
-            Toast.makeText(this, "Este aparelho não suporta janela flutuante.", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        youtubePip = isInPictureInPictureMode
-    }
-
     override fun onDestroy() {
         controller?.release()
         super.onDestroy()
@@ -756,7 +662,8 @@ private fun Home(
     onToggleFavorite: (Long) -> Unit, onOpenPlaylistPicker: (Long) -> Unit,
     onRemoveFromPlaylist: (Long, Long) -> Unit, onDeleteSong: (Song) -> Unit,
     onCreatePlaylist: () -> Unit, onEditPlaylist: (Long) -> Unit,
-    onDeletePlaylist: (Long) -> Unit, onYoutube: () -> Unit, onRefresh: () -> Unit,
+    onDeletePlaylist: (Long) -> Unit, onRefresh: () -> Unit,
+    onClearHistory: () -> Unit, onClearPlayCounts: () -> Unit,
     onPickCover: () -> Unit, onQueue: () -> Unit, onSleep: () -> Unit,
     onEqualizer: () -> Unit, onBackup: () -> Unit, onDuplicates: () -> Unit,
     onEditSong: (Long) -> Unit
@@ -895,18 +802,26 @@ private fun Home(
         }
 
         if (current != null) {
-            Surface(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), color = Color(0xFF101010), shadowElevation = 12.dp) {
+            Surface(
+                Modifier.align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(bottom = 8.dp),
+                color = Color(0xFF101010),
+                shadowElevation = 12.dp
+            ) {
                 CompactPlayer(current, playing, onMiniOpen, onToggle)
             }
         }
 
-        FloatingActionButton(
-            onClick = onYoutube,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = if (current != null) 82.dp else 18.dp),
-            containerColor = Red, contentColor = Color.White
-        ) { Icon(Icons.Default.SmartDisplay, "Abrir YouTube") }
 
-        if (showSettings) SettingsDialog(onClose = { onSettings(false) }, onRescan = { onRefresh(); onSettings(false) })
+
+        if (showSettings) SettingsDialog(
+            onClose = { onSettings(false) },
+            onRescan = { onRefresh(); onSettings(false) },
+            onClearHistory = onClearHistory,
+            onClearPlayCounts = onClearPlayCounts
+        )
 
         val menuSong = songs.firstOrNull { it.id == menuSongId }
         if (menuSong != null) {
@@ -924,7 +839,12 @@ private fun Home(
 }
 
 @Composable
-private fun SettingsDialog(onClose: () -> Unit, onRescan: () -> Unit) {
+private fun SettingsDialog(
+    onClose: () -> Unit,
+    onRescan: () -> Unit,
+    onClearHistory: () -> Unit,
+    onClearPlayCounts: () -> Unit
+) {
     AlertDialog(
         onDismissRequest = onClose,
         containerColor = Panel,
@@ -932,11 +852,42 @@ private fun SettingsDialog(onClose: () -> Unit, onRescan: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Sanches Music", color = Color.White, fontWeight = FontWeight.Bold)
-                Text("Biblioteca local • Reprodução em segundo plano", color = TextSoft)
+                Text("Biblioteca local", color = TextSoft, fontSize = 13.sp)
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFF1A1A1A)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Headphones, null, tint = Red)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Reprodução em segundo plano", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Ativada • continua pela barra de notificações", color = TextSoft, fontSize = 11.sp)
+                        }
+                    }
+                }
+
                 OutlinedButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Refresh, null)
                     Spacer(Modifier.width(8.dp))
                     Text("Atualizar biblioteca")
+                }
+
+                OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.History, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Limpar histórico", color = Red)
+                }
+
+                OutlinedButton(onClick = onClearPlayCounts, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.BarChart, null, tint = Red)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Zerar mais tocadas", color = Red)
                 }
             }
         },
@@ -1113,84 +1064,6 @@ private fun EditPlaylistDialog(
         confirmButton = { TextButton(onClick = { onSave(name) }) { Text("Salvar", color = Red) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
     )
-}
-
-@Composable
-private fun YoutubeScreen(
-    inPip: Boolean,
-    onDismiss: () -> Unit,
-    onPip: () -> Unit
-) {
-    val context = LocalContext.current
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .navigationBarsPadding()
-    ) {
-        AndroidView(
-            factory = {
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.mediaPlaybackRequiresUserGesture = false
-                    settings.loadWithOverviewMode = true
-                    settings.useWideViewPort = true
-                    settings.allowContentAccess = true
-                    settings.allowFileAccess = false
-                    webViewClient = WebViewClient()
-                    loadUrl("https://m.youtube.com/")
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        if (!inPip) {
-            Surface(
-                Modifier.align(Alignment.TopCenter).fillMaxWidth(),
-                color = Color(0xDD050505)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("YouTube", color = Red, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                        Text("Sanches Music • reprodução em segundo plano", color = TextSoft, fontSize = 11.sp)
-                    }
-                    FilledIconButton(
-                        onClick = onPip,
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)
-                    ) {
-                        Icon(Icons.Default.PictureInPictureAlt, "Janela flutuante")
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, "Fechar", tint = Color.White)
-                    }
-                }
-            }
-
-            Surface(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xEE111111)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Info, null, tint = Red)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Toque em Janela flutuante para continuar assistindo enquanto usa outros apps.",
-                        color = TextSoft,
-                        fontSize = 11.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable
