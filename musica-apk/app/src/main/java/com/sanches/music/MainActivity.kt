@@ -19,8 +19,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.widget.Toast
-import java.net.URL
-import java.net.URLEncoder
+
+
 import android.media.MediaMetadataRetriever
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -86,7 +86,6 @@ data class Playlist(
     val songIds: Set<Long>
 )
 
-data class OnlineTrack(val id: Long, val title: String, val artist: String, val album: String, val imageUrl: String, val audioUrl: String, val downloadUrl: String?, val downloadAllowed: Boolean)
 
 private val Ink = Color(0xFF050505)
 private val Panel = Color(0xFF111111)
@@ -147,11 +146,7 @@ class MainActivity : ComponentActivity() {
     private var showBackup by mutableStateOf(false)
     private var showDuplicates by mutableStateOf(false)
     private var showEditorSongId by mutableStateOf<Long?>(null)
-    private var showOnline by mutableStateOf(false)
     private var onlineTracks by mutableStateOf<List<OnlineTrack>>(emptyList())
-    private var onlineLoading by mutableStateOf(false)
-    private var onlineQuery by mutableStateOf("")
-    private var onlineError by mutableStateOf<String?>(null)
     private var sleepUntil by mutableLongStateOf(0L)
     private val sleepHandler = Handler(Looper.getMainLooper())
 
@@ -258,7 +253,6 @@ class MainActivity : ComponentActivity() {
                         onBackup = { showBackup = true },
                         onDuplicates = { showDuplicates = true },
                         onEditSong = { showEditorSongId = it },
-                        onOnline = { showOnline = true; if (onlineTracks.isEmpty()) searchOnline("") }
                     )
                 }
 
@@ -320,7 +314,6 @@ class MainActivity : ComponentActivity() {
                 if (showDuplicates) DuplicateDialog(songs, { showDuplicates = false }) { }
                 val editorSong = songs.firstOrNull { it.id == showEditorSongId }
                 if (editorSong != null) SongEditorDialog(editorSong, { showEditorSongId = null }) { t, a, al -> editSong(editorSong, t, a, al) }
-                if (showOnline) OnlineDialog(onlineTracks, onlineLoading, onlineQuery, onlineError, { onlineQuery = it }, { searchOnline(onlineQuery) }, { showOnline = false }, { playOnlineTrack(it, onlineTracks) }, { downloadOnlineTrack(it) })
 
             }
         }
@@ -740,8 +733,6 @@ class MainActivity : ComponentActivity() {
         current = song
     }
 
-    private fun searchOnline(query: String) {
-        onlineLoading=true; onlineError=null
         lifecycleScope.launch(Dispatchers.IO) {
             runCatching {
                 val encoded=URLEncoder.encode(query.trim(),"UTF-8")
@@ -750,34 +741,12 @@ class MainActivity : ComponentActivity() {
                 val con=URL(url).openConnection().apply { connectTimeout=10000; readTimeout=15000 }
                 val results=JSONObject(con.getInputStream().bufferedReader().use{it.readText()}).optJSONArray("results")?:JSONArray()
                 buildList { for(i in 0 until results.length()){ val o=results.optJSONObject(i)?:continue; val a=o.optString("audio",""); if(a.isNotBlank()) add(OnlineTrack(o.optLong("id"),o.optString("name","Sem título").trim(),o.optString("artist_name","Artista desconhecido").trim(),o.optString("album_name","").trim(),o.optString("image",o.optString("album_image","")),a)) } }
-            }.onSuccess { x->runOnUiThread{onlineTracks=x;onlineLoading=false;if(x.isEmpty())onlineError="Nenhuma música encontrada."}}
-            .onFailure { e->runOnUiThread{onlineLoading=false;onlineError="Não foi possível conectar agora.";Toast.makeText(this@MainActivity,e.message?:"Erro de conexão",Toast.LENGTH_SHORT).show()}}
         }
     }
 
-    private fun playOnlineTrack(track: OnlineTrack, queue: List<OnlineTrack>) {
         val c=controller?:return; val q=queue.distinctBy{it.id}
         val sq=q.map{Song(-kotlin.math.abs(it.id),it.title,it.artist,it.album,0L,Uri.parse(it.audioUrl),null)}
         val items=q.map{t->MediaItem.Builder().setMediaId("online_"+t.id).setUri(t.audioUrl).setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).setAlbumTitle(t.album).setArtworkUri(t.imageUrl.takeIf{it.isNotBlank()}?.let(Uri::parse)).setArtworkData(buildNotificationArtwork(),MediaMetadata.PICTURE_TYPE_ILLUSTRATION).build()).build()}
-        val index=q.indexOfFirst{it.id==track.id}.coerceAtLeast(0);playbackQueue=sq;c.setMediaItems(items,index,0L);c.prepare();c.play();current=sq[index];recordPlay(current!!.id);showOnline=false
-    }
-    private fun downloadOnlineTrack(track: OnlineTrack) {
-        if (!track.downloadAllowed || track.downloadUrl.isNullOrBlank()) { Toast.makeText(this, "Download não autorizado para esta faixa.", Toast.LENGTH_SHORT).show(); return }
-        lifecycleScope.launch(Dispatchers.IO) {
-            runCatching {
-                val values = ContentValues().apply {
-                    put(MediaStore.Audio.Media.DISPLAY_NAME, (track.artist + " - " + track.title).replace(Regex("[\\/:*?<>|]"), "_") + ".mp3")
-                    put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
-                    if (Build.VERSION.SDK_INT >= 29) { put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/Sanches Music"); put(MediaStore.Audio.Media.IS_PENDING, 1) }
-                }
-                val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: error("Não foi possível criar o arquivo")
-                try {
-                    URL(track.downloadUrl).openStream().use { input -> contentResolver.openOutputStream(uri)?.use { output -> input.copyTo(output) } ?: error("Não foi possível salvar") }
-                    if (Build.VERSION.SDK_INT >= 29) contentResolver.update(uri, ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) }, null, null)
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Baixada em Música/Sanches Music", Toast.LENGTH_LONG).show(); loadSongs() }
-                } catch (e: Exception) { contentResolver.delete(uri, null, null); throw e }
-            }.onFailure { runOnUiThread { Toast.makeText(this@MainActivity, "Erro no download", Toast.LENGTH_LONG).show() } }
-        }
     }
     private fun deleteSelected() {
         val targets = songs.filter { selectedIds.contains(it.id) }
@@ -835,7 +804,7 @@ private fun Home(
     onPickCover: () -> Unit, onQueue: () -> Unit, onSleep: () -> Unit,
     onEqualizer: () -> Unit, onTheme: () -> Unit, onStats: () -> Unit, onSmartQueue: () -> Unit,
     onBackup: () -> Unit, onDuplicates: () -> Unit,
-    onEditSong: (Long) -> Unit, onOnline: () -> Unit
+    onEditSong: (Long) -> Unit
 ) {
     var favoritesOnly by remember { mutableStateOf(false) }
     var menuSongId by remember { mutableStateOf<Long?>(null) }
@@ -1755,18 +1724,15 @@ private fun formatTime(ms: Long): String {
 }
 
 
-@Composable private fun OnlineDialog(tracks:List<OnlineTrack>,loading:Boolean,query:String,error:String?,onQuery:(String)->Unit,onSearch:()->Unit,onDismiss:()->Unit,onPlay:(OnlineTrack)->Unit,onDownload:(OnlineTrack)->Unit){
 Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){
 Surface(Modifier.fillMaxSize().padding(top=28.dp),color=Ink,shape=RoundedCornerShape(topStart=28.dp,topEnd=28.dp)){
 Column(Modifier.fillMaxSize().padding(18.dp)){
 Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onDismiss){Icon(Icons.Default.ArrowBack,"Voltar",tint=Red)};Column(Modifier.weight(1f)){Text("MÚSICAS ONLINE",color=Red,fontSize=12.sp,fontWeight=FontWeight.Bold);Text("Jamendo",color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Black)}}
 Row(verticalAlignment=Alignment.CenterVertically){OutlinedTextField(query,onQuery,Modifier.weight(1f),singleLine=true,label={Text("Buscar música")});Spacer(Modifier.width(8.dp));FilledIconButton(onClick=onSearch,colors=IconButtonDefaults.filledIconButtonColors(containerColor=Red)){Icon(Icons.Default.Search,"Buscar")}}
 Text("Catálogo independente • streaming gratuito",color=TextSoft,fontSize=12.sp,modifier=Modifier.padding(vertical=8.dp))
-if(loading)Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){CircularProgressIndicator(color=Red)}else if(error!=null&&tracks.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text(error,color=TextSoft)}else LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){items(tracks,key={it.id}){track->Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel2).clickable{onPlay(track)}.padding(9.dp),verticalAlignment=Alignment.CenterVertically){RemoteArtwork(track.imageUrl,58.dp);Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(track.title,color=Color.White,fontWeight=FontWeight.Bold,maxLines=1);Text(track.artist,color=TextSoft,fontSize=12.sp,maxLines=1)};IconButton(onClick={onPlay(track)}){Icon(Icons.Default.PlayArrow,"Tocar",tint=Red)};if(track.downloadAllowed&&!track.downloadUrl.isNullOrBlank())IconButton(onClick={onDownload(track)}){Icon(Icons.Default.Download,"Baixar",tint=Red)}}}}
 }
 }
 }
-@Composable private fun RemoteArtwork(url:String,size:Dp){val bitmap by produceState<Bitmap?>(initialValue=null,url){value=withContext(Dispatchers.IO){runCatching{URL(url).openStream().use{BitmapFactory.decodeStream(it)}}.getOrNull()}};if(bitmap!=null)Image(bitmap!!.asImageBitmap(),null,Modifier.size(size).clip(RoundedCornerShape(14.dp)),contentScale=ContentScale.Crop)else Box(Modifier.size(size).clip(RoundedCornerShape(14.dp)).background(Red.copy(alpha=.25f)),contentAlignment=Alignment.Center){Icon(Icons.Default.MusicNote,null,tint=Red)}}
 @Composable
 private fun QueueDialog(
     songs: List<Song>,
