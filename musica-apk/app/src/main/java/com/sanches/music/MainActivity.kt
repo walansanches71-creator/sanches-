@@ -664,6 +664,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enterYoutubePip() {
+        val c = controller
+        if (c != null) {
+            youtubeReturnSongId = current?.id ?: c.currentMediaItem?.mediaId?.toLongOrNull()
+            youtubeReturnPosition = c.currentPosition.coerceAtLeast(0L)
+            youtubeReturnWasPlaying = c.isPlaying
+            if (youtubeReturnWasPlaying) c.pause()
+        }
+
         if (Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
@@ -1331,7 +1339,6 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
             Artwork(song, 74.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text("TOCANDO AGORA", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.height(4.dp))
                 Text(song.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(song.artist, color = TextSoft, fontSize = 13.sp, maxLines = 1)
