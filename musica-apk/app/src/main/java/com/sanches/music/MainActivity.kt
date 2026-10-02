@@ -184,8 +184,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             SanchesTheme {
                 if (showPlayer && current != null) {
-                    FullPlayer(
-                        current!!, isPlaying, position, duration,
+                    key(current!!.id) {
+                        FullPlayer(
+                            current!!, isPlaying, position, duration,
                         { showPlayer = false },
                         { toggle() },
                         { controller?.seekTo(it) },
@@ -202,8 +203,9 @@ class MainActivity : ComponentActivity() {
                         },
                         shuffleEnabled,
                         repeatMode,
-                        { toggleFavorite(current!!.id) }
-                    )
+                            { toggleFavorite(current!!.id) }
+                        )
+                    }
                 } else {
                     Home(
                         songs = songs,
