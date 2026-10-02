@@ -136,13 +136,9 @@ class MainActivity : ComponentActivity() {
     private var showQueue by mutableStateOf(false)
     private var showSleepTimer by mutableStateOf(false)
     private var showEqualizer by mutableStateOf(false)
-    private var showHearing by mutableStateOf(false)
     private var showTheme by mutableStateOf(false)
+    private var activePlaylistId by mutableStateOf<Long?>(null)
     private var showStats by mutableStateOf(false)
-    private var hearingEnabled by mutableStateOf(true)
-    private var hearingThreshold by mutableFloatStateOf(0.80f)
-    private var hearingWarnedAt = 0L
-    private var lastObservedVolume = 0f
     private var showBackup by mutableStateOf(false)
     private var showDuplicates by mutableStateOf(false)
     private var showEditorSongId by mutableStateOf<Long?>(null)
@@ -185,8 +181,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         loadSavedData()
         accentColorState.value = themeColor(prefs.getString("theme_color", "Vermelho") ?: "Vermelho")
-        hearingEnabled = prefs.getBoolean("hearing_enabled", true)
-        hearingThreshold = prefs.getFloat("hearing_threshold", 0.95f).coerceIn(0.90f, 1.0f)
         setContent {
             SanchesTheme {
                 if (showPlayer && current != null) {
@@ -245,7 +239,8 @@ class MainActivity : ComponentActivity() {
                         onSleep = { showSleepTimer = true },
                         onEqualizer = { showEqualizer = true },
                         onTheme = { showTheme = true },
-                        onHearing = { showHearing = true },
+                        activePlaylistId = activePlaylistId,
+                        onActivePlaylistChange = { activePlaylistId = it },
                         onStats = { showStats = true },
                         onSmartQueue = { smartQueue() },
                         onBackup = { showBackup = true },
@@ -305,12 +300,6 @@ class MainActivity : ComponentActivity() {
                     accentColorState.value = themeColor(name)
                     prefs.edit().putString("theme_color", name).apply()
                     showTheme = false
-                }
-                if (showHearing) HearingDialog(hearingEnabled, hearingThreshold, { showHearing = false }) { enabled, threshold ->
-                    hearingEnabled = enabled
-                    hearingThreshold = threshold
-                    prefs.edit().putBoolean("hearing_enabled", enabled).putFloat("hearing_threshold", threshold).apply()
-                    showHearing = false
                 }
                 if (showStats) StatsDialog(songs, playCounts, historyIds, favorites, { showStats = false })
                 if (showBackup) BackupDialog({ showBackup = false }, { exportBackup() }, { importBackup() })
@@ -610,17 +599,6 @@ class MainActivity : ComponentActivity() {
                     // e a capa/nome são atualizados imediatamente na transição.
                     updateCurrentFromMediaItem(c.currentMediaItem)
 
-                    // O alerta acontece somente ao cruzar um volume realmente alto.
-                    val volumeNow = c.volume
-                    val crossedHighVolume = c.isPlaying &&
-                        volumeNow >= hearingThreshold &&
-                        lastObservedVolume < hearingThreshold
-                    if (hearingEnabled && crossedHighVolume &&
-                        System.currentTimeMillis() - hearingWarnedAt > 10 * 60_000L) {
-                        hearingWarnedAt = System.currentTimeMillis()
-                        Toast.makeText(this, "Volume no máximo — reduza um pouco para proteger sua audição.", Toast.LENGTH_LONG).show()
-                    }
-                    lastObservedVolume = volumeNow
                 }
                 Thread.sleep(400)
             }
@@ -726,7 +704,6 @@ class MainActivity : ComponentActivity() {
         c.play()
         recordPlay(song.id)
         current = song
-        showPlayer = true
     }
 
     private fun deleteSelected() {
@@ -774,6 +751,7 @@ private fun Home(
     selectedIds: Set<Long>, favorites: Set<Long>, playlists: List<Playlist>,
     historyIds: List<Long>, playCounts: Map<Long, Int>, showSettings: Boolean,
     onQuery: (String) -> Unit, onSong: (Song, List<Song>) -> Unit, onMiniOpen: () -> Unit,
+    activePlaylistId: Long?, onActivePlaylistChange: (Long?) -> Unit,
     onToggle: () -> Unit, onSelect: (Long) -> Unit, onDelete: () -> Unit,
     onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit,
     onToggleFavorite: (Long) -> Unit, onOpenPlaylistPicker: (Long) -> Unit,
@@ -782,12 +760,11 @@ private fun Home(
     onDeletePlaylist: (Long) -> Unit, onRefresh: () -> Unit,
     onClearHistory: () -> Unit, onClearPlayCounts: () -> Unit,
     onPickCover: () -> Unit, onQueue: () -> Unit, onSleep: () -> Unit,
-    onEqualizer: () -> Unit, onTheme: () -> Unit, onHearing: () -> Unit, onStats: () -> Unit, onSmartQueue: () -> Unit,
+    onEqualizer: () -> Unit, onTheme: () -> Unit, onStats: () -> Unit, onSmartQueue: () -> Unit,
     onBackup: () -> Unit, onDuplicates: () -> Unit,
     onEditSong: (Long) -> Unit
 ) {
     var favoritesOnly by remember { mutableStateOf(false) }
-    var activePlaylistId by remember { mutableStateOf<Long?>(null) }
     var menuSongId by remember { mutableStateOf<Long?>(null) }
     var smartFilter by remember { mutableStateOf("all") }
     val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
@@ -833,13 +810,13 @@ private fun Home(
             }
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = !favoritesOnly && activePlaylistId == null, onClick = { favoritesOnly = false; activePlaylistId = null }, label = { Text("Todas") })
-                    FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = !favoritesOnly; activePlaylistId = null }, label = { Text("♥ Favoritos") })
+                    FilterChip(selected = !favoritesOnly && activePlaylistId == null, onClick = { favoritesOnly = false; onActivePlaylistChange(null) }, label = { Text("Todas") })
+                    FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = !favoritesOnly; onActivePlaylistChange(null) }, label = { Text("♥ Favoritos") })
                     FilterChip(
                         selected = activePlaylistId != null,
                         onClick = {
                             if (playlists.isNotEmpty()) {
-                                activePlaylistId = if (activePlaylistId == null) playlists.first().id else null
+                                if (activePlaylistId == null) onActivePlaylistChange(playlists.first().id)
                                 favoritesOnly = false
                             }
                         },
@@ -881,7 +858,7 @@ private fun Home(
                                 playlist = playlist,
                                 selected = activePlaylistId == playlist.id,
                                 onClick = {
-                                    activePlaylistId = if (activePlaylistId == playlist.id) null else playlist.id
+                                    onActivePlaylistChange(if (activePlaylistId == playlist.id) null else playlist.id)
                                     favoritesOnly = false
                                 },
                                 onEdit = { onEditPlaylist(playlist.id) }
@@ -939,7 +916,7 @@ private fun Home(
             onRescan = { onRefresh(); onSettings(false) },
             onClearHistory = onClearHistory,
             onClearPlayCounts = onClearPlayCounts,
-            onTheme = onTheme, onHearing = onHearing, onStats = onStats, onSmartQueue = onSmartQueue
+            onTheme = onTheme, onStats = onStats, onSmartQueue = onSmartQueue
         )
 
         val menuSong = songs.firstOrNull { it.id == menuSongId }
@@ -964,7 +941,6 @@ private fun SettingsDialog(
     onClearHistory: () -> Unit,
     onClearPlayCounts: () -> Unit,
     onTheme: () -> Unit,
-    onHearing: () -> Unit,
     onStats: () -> Unit,
     onSmartQueue: () -> Unit
 ) {
@@ -1011,12 +987,6 @@ private fun SettingsDialog(
                     Icon(Icons.Default.Palette, null, tint = Red)
                     Spacer(Modifier.width(8.dp))
                     Text("Tema / Cor do aplicativo", color = Red)
-                }
-
-                OutlinedButton(onClick = onHearing, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Hearing, null, tint = Red)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Proteção auditiva", color = Red)
                 }
 
                 OutlinedButton(onClick = onStats, modifier = Modifier.fillMaxWidth()) {
@@ -1070,34 +1040,6 @@ private fun ThemeDialog(selected: String, onDismiss: () -> Unit, onSelect: (Stri
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
-    )
-}
-
-@Composable
-private fun HearingDialog(
-    enabled: Boolean,
-    threshold: Float,
-    onDismiss: () -> Unit,
-    onSave: (Boolean, Float) -> Unit
-) {
-    var active by remember { mutableStateOf(enabled) }
-    var level by remember { mutableFloatStateOf(threshold) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Panel,
-        title = { Text("Proteção auditiva", color = Red, fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("O aviso usa o volume interno do player. Ele não mede dB reais no ouvido.", color = TextSoft, fontSize = 12.sp)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Ativar aviso", color = Color.White, modifier = Modifier.weight(1f))
-                    Switch(checked = active, onCheckedChange = { active = it })
-                }
-                Text("Limite: " + (level * 100).toInt() + "%", color = Color.White)
-                Slider(level, { level = it }, valueRange = 0.55f..1f, colors = SliderDefaults.colors(thumbColor = Red, activeTrackColor = Red))
-            }
-        },
-        confirmButton = { TextButton(onClick = { onSave(active, level) }) { Text("Salvar", color = Red) } }
     )
 }
 
