@@ -52,10 +52,13 @@ data class Song(
     val art: Bitmap?
 )
 
-private val Bg = Color(0xFF090B35)
-private val Purple = Color(0xFF28115D)
-private val Soft = Color(0xFF8E8AA8)
-private val Accent = Color(0xFFFFB51B)
+private val Ink = Color(0xFF090B18)
+private val Panel = Color(0xFF12152A)
+private val Panel2 = Color(0xFF1A1E37)
+private val Violet = Color(0xFF8B5CF6)
+private val Mint = Color(0xFF22D3B6)
+private val TextSoft = Color(0xFF9298B5)
+private val Gold = Color(0xFFFFC857)
 
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
@@ -65,36 +68,21 @@ class MainActivity : ComponentActivity() {
     private var position by mutableLongStateOf(0L)
     private var duration by mutableLongStateOf(1L)
     private var showPlayer by mutableStateOf(false)
+    private var query by mutableStateOf("")
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) loadSongs() }
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) loadSongs()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             SanchesTheme {
                 if (showPlayer && current != null) {
-                    PlayerScreen(
-                        song = current!!,
-                        playing = isPlaying,
-                        position = position,
-                        duration = duration,
-                        onBack = { showPlayer = false },
-                        onToggle = { toggle() },
-                        onSeek = { controller?.seekTo(it) },
-                        onNext = { controller?.seekToNextMediaItem() },
-                        onPrev = { controller?.seekToPreviousMediaItem() }
-                    )
+                    FullPlayer(current!!, isPlaying, position, duration, { showPlayer = false }, { toggle() },
+                        { controller?.seekTo(it) }, { controller?.seekToNextMediaItem() }, { controller?.seekToPreviousMediaItem() })
                 } else {
-                    LibraryScreen(
-                        songs = songs,
-                        current = current,
-                        playing = isPlaying,
-                        onSong = { playSong(it) },
-                        onMini = { showPlayer = true },
-                        onToggle = { toggle() }
-                    )
+                    Home(songs, current, isPlaying, query, { query = it }, { playSong(it) }, { showPlayer = true }, { toggle() })
                 }
             }
         }
@@ -102,13 +90,8 @@ class MainActivity : ComponentActivity() {
         connectController()
     }
 
-    private fun toggle() {
-        controller?.let { if (it.isPlaying) it.pause() else it.play() }
-    }
-
     private fun requestAudioPermission() {
-        val permission = if (Build.VERSION.SDK_INT >= 33)
-            Manifest.permission.READ_MEDIA_AUDIO
+        val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
         else Manifest.permission.READ_EXTERNAL_STORAGE
         if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) loadSongs()
         else permissionLauncher.launch(permission)
@@ -131,52 +114,43 @@ class MainActivity : ComponentActivity() {
                     isPlaying = c.isPlaying
                     position = c.currentPosition.coerceAtLeast(0)
                     duration = if (c.duration > 0) c.duration else 1
-                    val idx = c.currentMediaItemIndex
-                    if (idx >= 0 && idx < songs.size) current = songs[idx]
+                    val index = c.currentMediaItemIndex
+                    if (index in songs.indices) current = songs[index]
                 }
                 Thread.sleep(400)
             }
         }.start()
     }
 
+    private fun toggle() {
+        controller?.let { if (it.isPlaying) it.pause() else it.play() }
+    }
+
     private fun loadSongs() {
         val result = mutableListOf<Song>()
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ID
-        )
-        contentResolver.query(
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            MediaStore.Audio.Media.IS_MUSIC + " != 0",
-            null,
-            MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC"
-        )?.use { c ->
+        val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID)
+
+        contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection,
+            MediaStore.Audio.Media.IS_MUSIC + " != 0", null,
+            MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC")?.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val albumIdCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
                 val albumId = c.getLong(albumIdCol)
                 val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                 val artUri = Uri.parse("content://media/external/audio/albumart/" + albumId)
-                val art = try {
-                    contentResolver.openInputStream(artUri)?.use { BitmapFactory.decodeStream(it) }
-                } catch (_: Exception) { null }
+                val art = try { contentResolver.openInputStream(artUri)?.use { BitmapFactory.decodeStream(it) } }
+                catch (_: Exception) { null }
                 val artist = c.getString(artistCol)
-                result += Song(
-                    id,
-                    c.getString(titleCol) ?: "Sem título",
+                result += Song(id, c.getString(titleCol) ?: "Sem título",
                     if (artist.isNullOrBlank() || artist == "<unknown>") "Artista desconhecido" else artist,
-                    c.getString(albumCol) ?: "",
-                    uri,
-                    art
-                )
+                    c.getString(albumCol) ?: "", uri, art)
             }
         }
         songs = result
@@ -185,17 +159,9 @@ class MainActivity : ComponentActivity() {
     private fun playSong(song: Song) {
         val c = controller ?: return
         val items = songs.map {
-            MediaItem.Builder()
-                .setMediaId(it.id.toString())
-                .setUri(it.uri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(it.title)
-                        .setArtist(it.artist)
-                        .setAlbumTitle(it.album)
-                        .build()
-                )
-                .build()
+            MediaItem.Builder().setMediaId(it.id.toString()).setUri(it.uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(it.title).setArtist(it.artist)
+                    .setAlbumTitle(it.album).build()).build()
         }
         val index = songs.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
         c.setMediaItems(items, index, 0L)
@@ -212,257 +178,210 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun SanchesTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            background = Bg,
-            surface = Color(0xFF11123E),
-            primary = Color.White,
-            onBackground = Color.White,
-            onSurface = Color.White
-        ),
-        content = content
-    )
+private fun SanchesTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = darkColorScheme(
+        background = Ink, surface = Panel, primary = Violet, secondary = Mint,
+        onBackground = Color.White, onSurface = Color.White
+    ), content = content)
 }
 
 @Composable
-fun LibraryScreen(
-    songs: List<Song>,
-    current: Song?,
-    playing: Boolean,
-    onSong: (Song) -> Unit,
-    onMini: () -> Unit,
-    onToggle: () -> Unit
+private fun Home(
+    songs: List<Song>, current: Song?, playing: Boolean, query: String,
+    onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit
 ) {
-    Box(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Bg, Color(0xFF160B42), Purple)))
-    ) {
+    val filtered = remember(songs, query) {
+        if (query.isBlank()) songs else songs.filter {
+            it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true)
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(
+        Brush.verticalGradient(listOf(Color(0xFF090B18), Color(0xFF11102A), Color(0xFF171132)))
+    )) {
         Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Menu, null, Modifier.size(30.dp))
-                Spacer(Modifier.width(28.dp))
-                Surface(shape = RoundedCornerShape(24.dp), color = Color(0xFF8C2DDB)) {
-                    Text("Ver seu resumo ✨", Modifier.padding(horizontal = 18.dp, vertical = 10.dp), fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("SANCHES", color = Mint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
+                    Text("Music", fontSize = 30.sp, fontWeight = FontWeight.Black)
                 }
+                Surface(shape = CircleShape, color = Panel2, modifier = Modifier.size(46.dp)) {
+                    IconButton(onClick = {}) { Icon(Icons.Default.Settings, null, tint = TextSoft) }
+                }
+            }
+
+            SearchBar(query, onQuery)
+
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                QuickChip("FAIXAS", songs.size.toString(), Violet)
+                QuickChip("ÁLBUNS", songs.map { it.album }.filter { it.isNotBlank() }.distinct().size.toString(), Mint)
+                QuickChip("PLAYLISTS", "0", Gold)
+            }
+
+            if (current != null) NowCard(current, playing, onMiniOpen, onToggle)
+
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (query.isBlank()) "Sua biblioteca" else "Resultados", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
-                Icon(Icons.Default.Search, null, Modifier.size(29.dp))
-                Spacer(Modifier.width(18.dp))
-                Icon(Icons.Default.Settings, null, Modifier.size(27.dp))
+                Text(filtered.size.toString(), color = TextSoft, fontSize = 14.sp)
             }
 
-            val tabs = listOf("Para você", "Faixas", "Playlists", "Pastas", "Álbuns")
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 28.dp),
-                horizontalArrangement = Arrangement.spacedBy(34.dp)
-            ) {
-                tabs.forEachIndexed { i, tab ->
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            tab,
-                            fontSize = if (i == 1) 26.sp else 22.sp,
-                            fontWeight = if (i == 1) FontWeight.Bold else FontWeight.Normal,
-                            color = if (i == 1) Color.White else Soft
-                        )
-                        if (i == 1) {
-                            Box(
-                                Modifier.padding(top = 10.dp).width(62.dp).height(3.dp)
-                                    .background(Color.White, CircleShape)
-                            )
-                        }
-                    }
+            LazyColumn(Modifier.weight(1f),
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 110.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                items(filtered, key = { it.id }) { song ->
+                    TrackCard(song, current?.id == song.id && playing, onSong)
                 }
             }
 
-            Row(
-                Modifier.fillMaxWidth().padding(28.dp, 20.dp, 28.dp, 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(songs.size.toString() + " Músicas", fontSize = 24.sp)
-                Spacer(Modifier.weight(1f))
-                Icon(Icons.Default.Sort, null)
-                Spacer(Modifier.width(18.dp))
-                Icon(Icons.Default.FormatListBulleted, null)
-            }
-
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 28.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                ActionButton("Aleatório", Icons.Default.Shuffle, Modifier.weight(1f)) {
-                    if (songs.isNotEmpty()) onSong(songs.random())
-                }
-                ActionButton("Reproduzir", Icons.Default.PlayArrow, Modifier.weight(1f)) {
-                    if (songs.isNotEmpty()) onSong(songs.first())
-                }
-            }
-
-            LazyColumn(
-                Modifier.weight(1f).padding(top = 12.dp),
-                contentPadding = PaddingValues(bottom = 100.dp)
-            ) {
-                items(songs, key = { it.id }) { song ->
-                    SongRow(song, current?.id == song.id && playing, onSong)
-                }
-            }
-
-            if (current != null) MiniPlayer(current, playing, onMini, onToggle)
+            if (current != null) CompactPlayer(current, playing, onMiniOpen, onToggle)
         }
     }
 }
 
 @Composable
-fun ActionButton(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier, onClick: () -> Unit) {
-    Button(
-        onClick,
-        modifier.height(58.dp),
-        shape = RoundedCornerShape(30.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF3B3B3B))
-    ) {
-        Icon(icon, null)
-        Spacer(Modifier.width(10.dp))
-        Text(text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-    }
+private fun SearchBar(value: String, onValue: (String) -> Unit) {
+    OutlinedTextField(value, onValue, Modifier.fillMaxWidth().padding(horizontal = 22.dp),
+        singleLine = true, placeholder = { Text("Buscar música, artista ou álbum", color = TextSoft) },
+        leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSoft) },
+        trailingIcon = { if (value.isNotEmpty()) IconButton({ onValue("") }) { Icon(Icons.Default.Close, null, tint = TextSoft) } },
+        shape = RoundedCornerShape(18.dp),
+        colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Panel, focusedContainerColor = Panel2,
+            unfocusedBorderColor = Color.Transparent, focusedBorderColor = Violet))
 }
 
 @Composable
-fun SongRow(song: Song, active: Boolean, onClick: (Song) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick(song) }.padding(horizontal = 28.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Artwork(song.art, 66.dp)
-        Spacer(Modifier.width(18.dp))
-        Column(Modifier.weight(1f)) {
-            Text(song.title, fontSize = 19.sp, color = if (active) Accent else Color.White, maxLines = 1)
-            Text(
-                song.artist + if (song.album.isNotBlank()) " - " + song.album else "",
-                fontSize = 14.sp, color = Soft, maxLines = 1
-            )
+private fun QuickChip(label: String, value: String, accent: Color) {
+    Surface(shape = RoundedCornerShape(15.dp), color = Panel) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+            Text(label, fontSize = 10.sp, color = accent, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
-        Text("⋮", fontSize = 28.sp, color = Soft)
     }
 }
 
 @Composable
-fun MiniPlayer(song: Song, playing: Boolean, onOpen: () -> Unit, onToggle: () -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth().clickable { onOpen() },
-        color = Color(0xFF28115D),
-        tonalElevation = 10.dp
-    ) {
-        Row(Modifier.padding(10.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(song.art, 56.dp)
+private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -> Unit) {
+    Surface(Modifier.fillMaxWidth().padding(horizontal = 22.dp).clickable { open() },
+        shape = RoundedCornerShape(24.dp), color = Panel2) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Artwork(song.art, 74.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(song.title, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(song.artist, fontSize = 13.sp, color = Soft, maxLines = 1)
+                Text("TOCANDO AGORA", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(song.title, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(song.artist, color = TextSoft, fontSize = 13.sp, maxLines = 1)
             }
-            IconButton(onToggle) {
-                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(34.dp))
+            FilledIconButton(onClick = toggle, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Violet)) {
+                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null)
             }
-            Icon(Icons.Default.QueueMusic, null, Modifier.padding(end = 8.dp))
         }
     }
 }
 
 @Composable
-fun PlayerScreen(
-    song: Song,
-    playing: Boolean,
-    position: Long,
-    duration: Long,
-    onBack: () -> Unit,
-    onToggle: () -> Unit,
-    onSeek: (Long) -> Unit,
-    onNext: () -> Unit,
-    onPrev: () -> Unit
+private fun TrackCard(song: Song, active: Boolean, onClick: (Song) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onClick(song) }
+        .background(if (active) Color(0xFF211A42) else Color.Transparent).padding(9.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Artwork(song.art, 58.dp)
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(song.title, color = if (active) Mint else Color.White, fontSize = 17.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
+            Text(song.artist + if (song.album.isNotBlank()) "  •  " + song.album else "",
+                color = TextSoft, fontSize = 13.sp, maxLines = 1)
+        }
+        IconButton(onClick = {}) { Icon(Icons.Default.MoreHoriz, null, tint = TextSoft) }
+    }
+}
+
+@Composable
+private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle: () -> Unit) {
+    Surface(Modifier.fillMaxWidth().clickable { open() }, color = Color(0xFF101329), tonalElevation = 8.dp) {
+        Column {
+            LinearProgressIndicator(progress = { if (playing) 0.45f else 0f },
+                Modifier.fillMaxWidth().height(2.dp), color = Mint, trackColor = Panel2)
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Artwork(song.art, 48.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(song.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(song.artist, fontSize = 12.sp, color = TextSoft, maxLines = 1)
+                }
+                IconButton(toggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null) }
+                Icon(Icons.Default.QueueMusic, null, tint = TextSoft, modifier = Modifier.padding(horizontal = 4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullPlayer(
+    song: Song, playing: Boolean, position: Long, duration: Long,
+    onBack: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit,
+    onNext: () -> Unit, onPrev: () -> Unit
 ) {
-    Column(
-        Modifier.fillMaxSize().background(Color(0xFF17191A)).padding(horizontal = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onBack) { Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(34.dp)) }
-            Spacer(Modifier.weight(1f))
-            Text("Música", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            Text("  |  Letra", color = Soft, fontSize = 19.sp)
-            Spacer(Modifier.weight(1f))
-            Icon(Icons.Default.MoreVert, null)
-        }
-
-        Spacer(Modifier.height(70.dp))
-        Artwork(song.art, 345.dp)
-        Spacer(Modifier.height(32.dp))
-        Text(song.title, fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(
-            song.artist + if (song.album.isNotBlank()) " - " + song.album else "",
-            color = Soft, fontSize = 19.sp, maxLines = 1
-        )
-
-        Spacer(Modifier.weight(1f))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-            Icon(Icons.Default.FavoriteBorder, null, Modifier.size(29.dp))
-            Icon(Icons.Default.PlaylistAdd, null, Modifier.size(29.dp))
-            Icon(Icons.Default.Tune, null, Modifier.size(29.dp))
-            Icon(Icons.Default.Timer, null, Modifier.size(29.dp))
-            Icon(Icons.Default.QueueMusic, null, Modifier.size(29.dp))
-        }
-
-        Spacer(Modifier.height(22.dp))
-        Slider(
-            value = position.toFloat().coerceIn(0f, duration.toFloat()),
-            onValueChange = { onSeek(it.toLong()) },
-            valueRange = 0f..duration.toFloat()
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(position), color = Soft, fontSize = 13.sp)
-            Text(formatTime(duration), color = Soft, fontSize = 13.sp)
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceAround
-        ) {
-            Icon(Icons.Default.Shuffle, null, Modifier.size(28.dp), tint = Soft)
-            IconButton(onPrev) { Icon(Icons.Default.SkipPrevious, null, Modifier.size(42.dp)) }
-            FilledIconButton(
-                onToggle,
-                Modifier.size(78.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)
-            ) {
-                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(42.dp))
+    Box(Modifier.fillMaxSize().background(
+        Brush.verticalGradient(listOf(Color(0xFF1C1738), Ink, Color(0xFF071D25)))
+    )) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onBack) { Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(32.dp)) }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("NOW PLAYING", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text("Sanches Music", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                }
+                IconButton({}) { Icon(Icons.Default.MoreVert, null) }
             }
-            IconButton(onNext) { Icon(Icons.Default.SkipNext, null, Modifier.size(42.dp)) }
-            Icon(Icons.Default.Repeat, null, Modifier.size(28.dp), tint = Soft)
+
+            Spacer(Modifier.height(45.dp))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Artwork(song.art, 310.dp) }
+            Spacer(Modifier.height(30.dp))
+            Text(song.title, fontSize = 28.sp, fontWeight = FontWeight.Black, maxLines = 2)
+            Text(song.artist, color = TextSoft, fontSize = 17.sp, maxLines = 1)
+            if (song.album.isNotBlank()) Text(song.album, color = TextSoft, fontSize = 13.sp, maxLines = 1)
+
+            Spacer(Modifier.weight(1f))
+            Slider(value = position.toFloat().coerceIn(0f, duration.toFloat()),
+                onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..duration.toFloat(),
+                colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatTime(position), color = TextSoft, fontSize = 12.sp)
+                Text(formatTime(duration), color = TextSoft, fontSize = 12.sp)
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
+                IconButton({}) { Icon(Icons.Default.Shuffle, null, tint = TextSoft) }
+                IconButton(onPrev) { Icon(Icons.Default.SkipPrevious, null, Modifier.size(38.dp)) }
+                FilledIconButton(onToggle, Modifier.size(76.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Mint, contentColor = Ink)) {
+                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(40.dp))
+                }
+                IconButton(onNext) { Icon(Icons.Default.SkipNext, null, Modifier.size(38.dp)) }
+                IconButton({}) { Icon(Icons.Default.Repeat, null, tint = TextSoft) }
+            }
+            Spacer(Modifier.height(35.dp))
         }
-        Spacer(Modifier.height(28.dp))
     }
 }
 
 @Composable
-fun Artwork(bitmap: Bitmap?, size: Dp) {
+private fun Artwork(bitmap: Bitmap?, size: Dp) {
     if (bitmap != null) {
-        Image(
-            bitmap.asImageBitmap(), null,
-            Modifier.size(size).clip(RoundedCornerShape(16.dp)),
-            contentScale = ContentScale.Crop
-        )
+        Image(bitmap.asImageBitmap(), null, Modifier.size(size).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop)
     } else {
-        Box(
-            Modifier.size(size).clip(RoundedCornerShape(16.dp)).background(Color(0xFF333333)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.MusicNote, null, Modifier.size(size / 3), tint = Soft)
+        Box(Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Violet, Mint))),
+            contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.MusicNote, null, Modifier.size(size / 3), tint = Color.White)
         }
     }
 }
 
-fun formatTime(ms: Long): String {
+private fun formatTime(ms: Long): String {
     val total = ms / 1000
     return "%d:%02d".format(total / 60, total % 60)
 }
