@@ -511,6 +511,9 @@ class MainActivity : ComponentActivity() {
                         .setTitle(it.title)
                         .setArtist(it.artist)
                         .setAlbumTitle(it.album)
+                        .setArtworkUri(
+                            if (it.albumId > 0) Uri.parse("content://media/external/audio/albums/" + it.albumId + "/album_art") else null
+                        )
                         .build()
                 ).build()
         }
