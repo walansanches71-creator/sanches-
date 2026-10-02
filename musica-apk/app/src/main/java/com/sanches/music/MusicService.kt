@@ -48,7 +48,6 @@ class MusicService : MediaSessionService() {
         val eq = equalizer ?: return
         val bass = bassBoost ?: return
         runCatching {
-            val max = bass.roundingMode.let { 1000.toShort() }
             bass.setStrength(
                 when (name) {
                     "Rock", "Metal" -> 800
