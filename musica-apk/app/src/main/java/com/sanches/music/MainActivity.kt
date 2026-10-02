@@ -195,7 +195,7 @@ class MainActivity : ComponentActivity() {
                         playCounts = playCounts,
                         showSettings = showSettings,
                         onQuery = { query = it },
-                        onSong = { playSong(it) },
+                        onSong = { song, queue -> playSong(song, queue) },
                         onMiniOpen = { showPlayer = true },
                         onToggle = { toggle() },
                         onSelect = { id -> selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id },
@@ -582,9 +582,10 @@ class MainActivity : ComponentActivity() {
             }
         }.start()
     }
-    private fun playSong(song: Song) {
+    private fun playSong(song: Song, queueSongs: List<Song> = songs) {
         val c = controller ?: return
-        val items = songs.map {
+        val queue = queueSongs.distinctBy { it.id }
+        val items = queue.map {
             MediaItem.Builder()
                 .setMediaId(it.id.toString())
                 .setUri(it.uri)
@@ -603,7 +604,7 @@ class MainActivity : ComponentActivity() {
                         .build()
                 ).build()
         }
-        val index = songs.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+        val index = queue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
         c.setMediaItems(items, index, 0L)
         c.prepare()
         c.play()
@@ -656,7 +657,7 @@ private fun Home(
     songs: List<Song>, current: Song?, playing: Boolean, query: String,
     selectedIds: Set<Long>, favorites: Set<Long>, playlists: List<Playlist>,
     historyIds: List<Long>, playCounts: Map<Long, Int>, showSettings: Boolean,
-    onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit,
+    onQuery: (String) -> Unit, onSong: (Song, List<Song>) -> Unit, onMiniOpen: () -> Unit,
     onToggle: () -> Unit, onSelect: (Long) -> Unit, onDelete: () -> Unit,
     onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit,
     onToggleFavorite: (Long) -> Unit, onOpenPlaylistPicker: (Long) -> Unit,
@@ -795,7 +796,7 @@ private fun Home(
                 TrackCard(
                     song = song, active = current?.id == song.id && playing,
                     selected = selectedIds.contains(song.id), selectionMode = selectedIds.isNotEmpty(),
-                    favorite = favorites.contains(song.id), onClick = onSong, onSelect = onSelect,
+                    favorite = favorites.contains(song.id), onClick = { onSong(song, filtered) }, onSelect = onSelect,
                     onMore = { menuSongId = song.id }
                 )
             }
