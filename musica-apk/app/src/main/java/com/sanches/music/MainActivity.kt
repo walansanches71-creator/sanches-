@@ -94,6 +94,8 @@ private val artworkCache = LruCache<Long, Bitmap>(48)
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
     private var songs by mutableStateOf<List<Song>>(emptyList())
+    // Fila real em reprodução, independente da ordem da biblioteca.
+    private var playbackQueue by mutableStateOf<List<Song>>(emptyList())
     private var current by mutableStateOf<Song?>(null)
     private var isPlaying by mutableStateOf(false)
     private var shuffleEnabled by mutableStateOf(false)
@@ -124,6 +126,7 @@ class MainActivity : ComponentActivity() {
     private var hearingEnabled by mutableStateOf(true)
     private var hearingThreshold by mutableFloatStateOf(0.80f)
     private var hearingWarnedAt = 0L
+    private var lastObservedVolume = 0f
     private var showBackup by mutableStateOf(false)
     private var showDuplicates by mutableStateOf(false)
     private var showEditorSongId by mutableStateOf<Long?>(null)
@@ -166,7 +169,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         loadSavedData()
         hearingEnabled = prefs.getBoolean("hearing_enabled", true)
-        hearingThreshold = prefs.getFloat("hearing_threshold", 0.80f)
+        hearingThreshold = prefs.getFloat("hearing_threshold", 0.95f).coerceIn(0.90f, 1.0f)
         setContent {
             SanchesTheme {
                 if (showPlayer && current != null) {
@@ -278,7 +281,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                if (showQueue) QueueDialog(songs, current, { showQueue = false }) { playSong(it); showQueue = false }
+                if (showQueue) QueueDialog(playbackQueue.ifEmpty { songs }, current, { showQueue = false }) { playSong(it, playbackQueue.ifEmpty { songs }); showQueue = false }
                 if (showSleepTimer) SleepTimerDialog(sleepUntil, { showSleepTimer = false }) { setSleepTimer(it); showSleepTimer = false }
                 if (showEqualizer) EqualizerDialog({ showEqualizer = false }) { applyEqualizerPreset(it) }
                 if (showMixer) MixerDialog({ showMixer = false }) { bass, bands -> applyMixer(bass, bands) }
@@ -416,6 +419,7 @@ class MainActivity : ComponentActivity() {
                         .build()
                 ).build()
         }
+        playbackQueue = ordered
         c.setMediaItems(items)
         c.prepare()
         c.play()
@@ -564,13 +568,23 @@ class MainActivity : ComponentActivity() {
                     repeatMode = c.repeatMode
                     position = c.currentPosition.coerceAtLeast(0)
                     duration = if (c.duration > 0) c.duration else 1
-                    val index = c.currentMediaItemIndex
-                    if (index in songs.indices) current = songs[index]
-                    if (hearingEnabled && c.isPlaying && c.volume >= hearingThreshold &&
-                        System.currentTimeMillis() - hearingWarnedAt > 60000L) {
-                        hearingWarnedAt = System.currentTimeMillis()
-                        Toast.makeText(this, "Volume alto — reduza o volume para proteger sua audição.", Toast.LENGTH_LONG).show()
+                    // A fila pode ser uma playlist. Nunca associe o índice da fila ao índice da biblioteca.
+                    val mediaId = c.currentMediaItem?.mediaId?.toLongOrNull()
+                    if (mediaId != null) {
+                        songs.firstOrNull { it.id == mediaId }?.let { current = it }
                     }
+
+                    // O alerta acontece somente ao cruzar um volume realmente alto.
+                    val volumeNow = c.volume
+                    val crossedHighVolume = c.isPlaying &&
+                        volumeNow >= hearingThreshold &&
+                        lastObservedVolume < hearingThreshold
+                    if (hearingEnabled && crossedHighVolume &&
+                        System.currentTimeMillis() - hearingWarnedAt > 10 * 60_000L) {
+                        hearingWarnedAt = System.currentTimeMillis()
+                        Toast.makeText(this, "Volume no máximo — reduza um pouco para proteger sua audição.", Toast.LENGTH_LONG).show()
+                    }
+                    lastObservedVolume = volumeNow
                 }
                 Thread.sleep(400)
             }
