@@ -111,6 +111,9 @@ class MainActivity : ComponentActivity() {
     private var showPlaylistPicker by mutableStateOf(false)
     private var showYoutube by mutableStateOf(false)
     private var youtubePip by mutableStateOf(false)
+    private var youtubeReturnSongId by mutableStateOf<Long?>(null)
+    private var youtubeReturnPosition by mutableLongStateOf(0L)
+    private var youtubeReturnWasPlaying by mutableStateOf(false)
     private var editingPlaylistId by mutableStateOf<Long?>(null)
     private var pendingPlaylistCover by mutableStateOf<Uri?>(null)
     private var songForPlaylist by mutableStateOf<Long?>(null)
@@ -258,7 +261,7 @@ class MainActivity : ComponentActivity() {
                 if (showYoutube) {
                     YoutubeScreen(
                         inPip = youtubePip,
-                        onDismiss = { showYoutube = false },
+                        onDismiss = { closeYoutubeAndResumeMusic() },
                         onPip = { enterYoutubePip() }
                     )
                 }
@@ -545,6 +548,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openYoutube(context: Context) {
+        val c = controller
+        youtubeReturnSongId = current?.id ?: c?.currentMediaItem?.mediaId?.toLongOrNull()
+        youtubeReturnPosition = c?.currentPosition?.coerceAtLeast(0L) ?: 0L
+        youtubeReturnWasPlaying = c?.isPlaying == true
         showYoutube = true
         if (Build.VERSION.SDK_INT >= 31) {
             setPictureInPictureParams(
@@ -554,6 +561,34 @@ class MainActivity : ComponentActivity() {
                     .build()
             )
         }
+    }
+
+    private fun closeYoutubeAndResumeMusic() {
+        showYoutube = false
+        youtubePip = false
+
+        if (!youtubeReturnWasPlaying) {
+            youtubeReturnSongId = null
+            return
+        }
+
+        val c = controller ?: return
+        val id = youtubeReturnSongId
+        val index = songs.indexOfFirst { it.id == id }
+
+        if (index >= 0) {
+            runCatching {
+                c.seekTo(index, youtubeReturnPosition)
+                c.play()
+                current = songs[index]
+            }
+        } else {
+            runCatching { c.seekTo(youtubeReturnPosition); c.play() }
+        }
+
+        youtubeReturnSongId = null
+        youtubeReturnPosition = 0L
+        youtubeReturnWasPlaying = false
     }
 
     private fun enterYoutubePip() {
