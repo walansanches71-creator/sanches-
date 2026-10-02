@@ -631,7 +631,7 @@ class MainActivity : ComponentActivity() {
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             canvas.drawColor(android.graphics.Color.BLACK)
-            val logo = getDrawable(com.sanches.music.R.drawable.ic_launcher)
+            val logo = getDrawable(com.sanches.music.R.drawable.ic_launcher) ?: return@runCatching null
             logo.setBounds(0, 0, size, size)
             logo.draw(canvas)
             ByteArrayOutputStream().use { out ->
