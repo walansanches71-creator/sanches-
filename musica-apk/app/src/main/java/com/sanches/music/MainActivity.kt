@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var showPlayer by mutableStateOf(false)
     private var query by mutableStateOf("")
     private var selectedIds by mutableStateOf<Set<Long>>(emptySet())
+    private var showSettings by mutableStateOf(false)
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) loadSongs()
@@ -98,10 +99,10 @@ class MainActivity : ComponentActivity() {
                         { controller?.seekTo(it) }, { controller?.seekToNextMediaItem() }, { controller?.seekToPreviousMediaItem() })
                 } else {
                     Home(
-    songs, current, isPlaying, query, selectedIds,
+    songs, current, isPlaying, query, selectedIds, showSettings,
     { query = it }, { playSong(it) }, { showPlayer = true }, { toggle() },
     { id -> selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id },
-    { deleteSelected() }, { selectedIds = emptySet() }
+    { deleteSelected() }, { selectedIds = emptySet() }, { showSettings = it; if (!it) loadSongs() }
 )
                 }
             }
@@ -222,7 +223,7 @@ private fun SanchesTheme(content: @Composable () -> Unit) {
 private fun Home(
     songs: List<Song>, current: Song?, playing: Boolean, query: String, selectedIds: Set<Long>,
     onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit,
-    onSelect: (Long) -> Unit, onDelete: () -> Unit, onClearSelection: () -> Unit
+    onSelect: (Long) -> Unit, onDelete: () -> Unit, onClearSelection: () -> Unit, onSettings: (Boolean) -> Unit
 ) {
     val filtered = remember(songs, query) {
         if (query.isBlank()) songs else songs.filter {
@@ -240,7 +241,7 @@ private fun Home(
                     Text("Music", fontSize = 30.sp, fontWeight = FontWeight.Black)
                 }
                 Surface(shape = CircleShape, color = Panel2, modifier = Modifier.size(46.dp)) {
-                    IconButton(onClick = {}) { Icon(Icons.Default.Settings, null, tint = TextSoft) }
+                    IconButton(onClick = { onSettings(true) }) { Icon(Icons.Default.Settings, "Configurações", tint = TextSoft) }
                 }
             }
 
@@ -271,23 +272,32 @@ private fun Home(
                 }
             }
 
-            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (query.isBlank()) "Sua biblioteca" else "Resultados", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                Text(filtered.size.toString(), color = TextSoft, fontSize = 14.sp)
-            }
-
             LazyColumn(Modifier.weight(1f),
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 110.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 items(filtered, key = { it.id }) { song ->
-                    TrackCard(song, current?.id == song.id && playing, selectedIds.contains(song.id), onSong, onSelect)
+                    TrackCard(song, current?.id == song.id && playing, selectedIds.contains(song.id), selectedIds.isNotEmpty(), onSong, onSelect)
                 }
             }
 
             if (current != null) CompactPlayer(current, playing, onMiniOpen, onToggle)
         }
+        if (showSettings) SettingsDialog(onClose = { onSettings(false) }, onRescan = { onSettings(false) })
     }
+}
+
+@Composable
+private fun SettingsDialog(onClose: () -> Unit, onRescan: () -> Unit) {
+    AlertDialog(onDismissRequest = onClose, containerColor = Panel,
+        title = { Text("Configurações", fontWeight = FontWeight.Bold) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Sanches Music", color = Red, fontWeight = FontWeight.Bold)
+            Text("Biblioteca local • Reprodução em segundo plano", color = TextSoft)
+            OutlinedButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Atualizar biblioteca")
+            }
+        } },
+        confirmButton = { TextButton(onClick = onClose) { Text("Fechar", color = Red) } })
 }
 
 @Composable
@@ -319,12 +329,12 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
             Artwork(song.art, 74.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text("TOCANDO AGORA", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("TOCANDO AGORA", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.height(4.dp))
                 Text(song.title, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(song.artist, color = TextSoft, fontSize = 13.sp, maxLines = 1)
             }
-            FilledIconButton(onClick = toggle, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Violet)) {
+            FilledIconButton(onClick = toggle, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null)
             }
         }
@@ -333,8 +343,8 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TrackCard(song: Song, active: Boolean, selected: Boolean, onClick: (Song) -> Unit, onSelect: (Long) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).combinedClickable(onClick = { onClick(song) }, onLongClick = { onSelect(song.id) })
+private fun TrackCard(song: Song, active: Boolean, selected: Boolean, selectionMode: Boolean, onClick: (Song) -> Unit, onSelect: (Long) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).combinedClickable(onClick = { if (selectionMode) onSelect(song.id) else onClick(song) }, onLongClick = { onSelect(song.id) })
         .background(if (selected) Color(0xFF3A0B0F) else if (active) Color(0xFF21090B) else Color.Transparent).padding(9.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Artwork(song.art, 58.dp)
@@ -402,7 +412,7 @@ private fun FullPlayer(
             Spacer(Modifier.weight(1f))
             Slider(value = position.toFloat().coerceIn(0f, duration.toFloat()),
                 onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..duration.toFloat(),
-                colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint))
+                colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Red))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(formatTime(position), color = TextSoft, fontSize = 12.sp)
                 Text(formatTime(duration), color = TextSoft, fontSize = 12.sp)
@@ -429,7 +439,7 @@ private fun Artwork(bitmap: Bitmap?, size: Dp) {
     if (bitmap != null) {
         Image(bitmap.asImageBitmap(), null, Modifier.size(size).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop)
     } else {
-        Box(Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Violet, Mint))),
+        Box(Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Color(0xFF5C0006), RedBright))),
             contentAlignment = Alignment.Center) {
             Icon(Icons.Default.MusicNote, null, Modifier.size(size / 3), tint = Color.White)
         }
