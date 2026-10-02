@@ -181,7 +181,8 @@ class MainActivity : ComponentActivity() {
                             coverUri = pendingPlaylistCover,
                             onPickCover = { coverPickerLauncher.launch("image/*") },
                             onDismiss = { editingPlaylistId = null; pendingPlaylistCover = null },
-                            onSave = { name -> savePlaylistEdit(playlist.id, name) }
+                            onSave = { name -> savePlaylistEdit(playlist.id, name) },
+                            onDelete = { deletePlaylist(playlist.id) }
                         )
                     }
                 }
@@ -868,7 +869,8 @@ private fun EditPlaylistDialog(
     coverUri: Uri?,
     onPickCover: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit
+    onSave: (String) -> Unit,
+    onDelete: () -> Unit
 ) {
     var name by remember(playlist.id) { mutableStateOf(playlist.name) }
     val shownCover = coverUri?.toString() ?: playlist.coverUri
@@ -890,7 +892,11 @@ private fun EditPlaylistDialog(
                     label = { Text("Nome da playlist") },
                     singleLine = true
                 )
-                Text("Para apagar a playlist, use a opção de gerenciamento na tela principal.", color = TextSoft, fontSize = 11.sp)
+                TextButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, null, tint = Red)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Apagar playlist", color = Red)
+                }
             }
         },
         confirmButton = { TextButton(onClick = { onSave(name) }) { Text("Salvar", color = Red) } },
@@ -938,7 +944,7 @@ private fun YoutubeDialog(
                     modifier = Modifier.fillMaxWidth(),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Red)
                 ) {
-                    Icon(Icons.Default.YouTube, null, tint = Red)
+                    Icon(Icons.Default.PlayCircle, null, tint = Red)
                     Spacer(Modifier.width(7.dp))
                     Text("Abrir YouTube", color = Red)
                 }
