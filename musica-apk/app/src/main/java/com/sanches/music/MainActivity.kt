@@ -98,6 +98,16 @@ class MainActivity : ComponentActivity() {
     private var editingPlaylistId by mutableStateOf<Long?>(null)
     private var pendingPlaylistCover by mutableStateOf<Uri?>(null)
     private var songForPlaylist by mutableStateOf<Long?>(null)
+    private var historyIds by mutableStateOf<List<Long>>(emptyList())
+    private var playCounts by mutableStateOf<Map<Long, Int>>(emptyMap())
+    private var showQueue by mutableStateOf(false)
+    private var showSleepTimer by mutableStateOf(false)
+    private var showEqualizer by mutableStateOf(false)
+    private var showBackup by mutableStateOf(false)
+    private var showDuplicates by mutableStateOf(false)
+    private var showEditorSongId by mutableStateOf<Long?>(null)
+    private var sleepUntil by mutableLongStateOf(0L)
+    private val sleepHandler = Handler(Looper.getMainLooper())
 
     private val prefs by lazy { getSharedPreferences("sanches_music", MODE_PRIVATE) }
 
@@ -162,7 +172,13 @@ class MainActivity : ComponentActivity() {
                         onDeletePlaylist = { deletePlaylist(it) },
                         onYoutube = { showYoutube = true },
                         onRefresh = { loadSongs() },
-                        onPickCover = { coverPickerLauncher.launch("image/*") }
+                        onPickCover = { coverPickerLauncher.launch("image/*") },
+                        onQueue = { showQueue = true },
+                        onSleep = { showSleepTimer = true },
+                        onEqualizer = { showEqualizer = true },
+                        onBackup = { showBackup = true },
+                        onDuplicates = { showDuplicates = true },
+                        onEditSong = { showEditorSongId = it }
                     )
                 }
 
@@ -204,6 +220,15 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                if (showQueue) QueueDialog(songs, current, { showQueue = false }) { playSong(it); showQueue = false }
+                if (showSleepTimer) SleepTimerDialog(sleepUntil, { showSleepTimer = false }) { setSleepTimer(it); showSleepTimer = false }
+                if (showEqualizer) EqualizerDialog({ showEqualizer = false }) { applyEqualizerPreset(it) }
+                if (showBackup) BackupDialog({ showBackup = false }, { exportBackup() }, { importBackup() })
+                if (showDuplicates) DuplicateDialog(songs, { showDuplicates = false })
+                { /* duplicate scanner is informational; deletion remains through normal multi-select */ }
+                val editorSong = songs.firstOrNull { it.id == showEditorSongId }
+                if (editorSong != null) SongEditorDialog(editorSong, { showEditorSongId = null }) { t, a, al -> editSong(editorSong, t, a, al) }
+
                 if (showYoutube) {
                     YoutubeDialog(
                         onDismiss = { showYoutube = false },
@@ -221,6 +246,13 @@ class MainActivity : ComponentActivity() {
         favorites = prefs.getStringSet("favorites", emptySet())
             ?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
 
+        historyIds = prefs.getString("history", null)?.split(",")?.mapNotNull { it.toLongOrNull() } ?: emptyList()
+        prefs.getString("play_counts", null)?.let { rawCounts ->
+            runCatching {
+                val o = JSONObject(rawCounts)
+                playCounts = o.keys().asSequence().associate { key -> key.toLong() to o.getInt(key) }
+            }
+        }
         val raw = prefs.getString("playlists", null) ?: return
         runCatching {
             val arr = JSONArray(raw)
@@ -252,6 +284,66 @@ class MainActivity : ComponentActivity() {
             })
         }
         prefs.edit().putString("playlists", arr.toString()).apply()
+    }
+
+    private fun recordPlay(id: Long) {
+        historyIds = (listOf(id) + historyIds.filterNot { it == id }).take(100)
+        playCounts = playCounts + (id to ((playCounts[id] ?: 0) + 1))
+        prefs.edit()
+            .putString("history", historyIds.joinToString(","))
+            .putString("play_counts", JSONObject(playCounts.mapKeys { it.key.toString() }).toString())
+            .apply()
+    }
+
+    private fun setSleepTimer(minutes: Int) {
+        sleepHandler.removeCallbacksAndMessages(null)
+        if (minutes <= 0) { sleepUntil = 0L; return }
+        sleepUntil = System.currentTimeMillis() + minutes * 60_000L
+        sleepHandler.postDelayed({ controller?.pause(); sleepUntil = 0L }, minutes * 60_000L)
+        Toast.makeText(this, "Sleep Timer: $minutes min", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyEqualizerPreset(preset: String) {
+        startService(Intent(this, MusicService::class.java).setAction("com.sanches.music.EQ_PRESET").putExtra("preset", preset))
+        Toast.makeText(this, "Equalizador: $preset", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun exportBackup() {
+        val payload = JSONObject().apply {
+            put("favorites", JSONArray(favorites.toList()))
+            put("history", JSONArray(historyIds))
+            put("playCounts", JSONObject(playCounts.mapKeys { it.key.toString() }))
+            val ps = JSONArray()
+            playlists.forEach { p -> ps.put(JSONObject().apply { put("id", p.id); put("name", p.name); put("cover", p.coverUri ?: JSONObject.NULL); put("songs", JSONArray(p.songIds.toList())) }) }
+            put("playlists", ps)
+        }
+        val file = java.io.File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), "sanches_music_backup.json")
+        file.writeText(payload.toString(2))
+        val uri = androidx.core.content.FileProvider.getUriForFile(this, packageName + ".provider", file)
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, "Exportar backup"))
+    }
+
+    private fun importBackup() {
+        Toast.makeText(this, "Importação automática ficará disponível no próximo passo do backup.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun editSong(song: Song, title: String, artist: String, album: String) {
+        runCatching {
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.Audio.Media.TITLE, title.trim())
+                put(MediaStore.Audio.Media.ARTIST, artist.trim())
+                put(MediaStore.Audio.Media.ALBUM, album.trim())
+            }
+            contentResolver.update(song.uri, values, null, null)
+        }.onSuccess {
+            showEditorSongId = null
+            loadSongs()
+            Toast.makeText(this, "Metadados atualizados", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(this, "O Android bloqueou a edição deste arquivo.", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun toggleFavorite(id: Long) {
@@ -346,7 +438,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadSongs() {
-        val result = mutableListOf<Song>()
+        Thread {
+            val result = mutableListOf<Song>()
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
@@ -389,7 +482,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        songs = result
+        runOnUiThread { songs = result }
+        }
     }
 
     private fun playSong(song: Song) {
@@ -410,6 +504,7 @@ class MainActivity : ComponentActivity() {
         c.setMediaItems(items, index, 0L)
         c.prepare()
         c.play()
+        recordPlay(song.id)
         current = song
         showPlayer = true
     }
@@ -505,15 +600,22 @@ private fun Home(
     onDeletePlaylist: (Long) -> Unit,
     onYoutube: () -> Unit,
     onRefresh: () -> Unit,
-    onPickCover: () -> Unit
+    onPickCover: () -> Unit,
+    onQueue: () -> Unit,
+    onSleep: () -> Unit,
+    onEqualizer: () -> Unit,
+    onBackup: () -> Unit,
+    onDuplicates: () -> Unit,
+    onEditSong: (Long) -> Unit
 ) {
     var artistFilter by remember { mutableStateOf<String?>(null) }
     var favoritesOnly by remember { mutableStateOf(false) }
     var activePlaylistId by remember { mutableStateOf<Long?>(null) }
     var menuSongId by remember { mutableStateOf<Long?>(null) }
+    var smartFilter by remember { mutableStateOf("all") }
     val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
 
-    val filtered = remember(songs, query, artistFilter, favoritesOnly, activePlaylistId, playlists, favorites) {
+    val filtered = remember(songs, query, artistFilter, favoritesOnly, activePlaylistId, playlists, favorites, smartFilter, historyIds, playCounts) {
         songs.filter { song ->
             val textMatch = query.isBlank() ||
                 song.title.contains(query, true) ||
@@ -522,7 +624,12 @@ private fun Home(
             val artistMatch = artistFilter == null || song.artist.equals(artistFilter, true)
             val favoriteMatch = !favoritesOnly || favorites.contains(song.id)
             val playlistMatch = activePlaylist == null || activePlaylist.songIds.contains(song.id)
-            textMatch && artistMatch && favoriteMatch && playlistMatch
+            val smartMatch = when (smartFilter) {
+                "history" -> historyIds.contains(song.id)
+                "top" -> (playCounts[song.id] ?: 0) > 0
+                else -> true
+            }
+            textMatch && artistMatch && favoriteMatch && playlistMatch && smartMatch
         }
     }
 
@@ -592,6 +699,17 @@ private fun Home(
                     },
                     label = { Text("♫ Playlists") }
                 )
+            }
+
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                FilterChip(selected = smartFilter == "all", onClick = { smartFilter = "all" }, label = { Text("Biblioteca") })
+                FilterChip(selected = smartFilter == "history", onClick = { smartFilter = "history" }, label = { Text("Histórico") })
+                FilterChip(selected = smartFilter == "top", onClick = { smartFilter = "top" }, label = { Text("Mais tocadas") })
+                TextButton(onClick = onQueue) { Text("Fila", color = Red) }
+                TextButton(onClick = onSleep) { Text("Timer", color = Red) }
+                TextButton(onClick = onEqualizer) { Text("EQ", color = Red) }
+                TextButton(onClick = onBackup) { Text("Backup", color = Red) }
+                TextButton(onClick = onDuplicates) { Text("Duplicadas", color = Red) }
             }
 
             if (artists.isNotEmpty()) {
@@ -1237,16 +1355,6 @@ private fun SearchBar(value: String, onValue: (String) -> Unit) {
             focusedBorderColor = Red
         )
     )
-}
-
-@Composable
-private fun QuickChip(label: String, value: String, accent: Color) {
-    Surface(shape = RoundedCornerShape(15.dp), color = Panel) {
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
-            Text(label, fontSize = 10.sp, color = accent, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Text(value, fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.Bold)
-        }
-    }
 }
 
 @Composable
