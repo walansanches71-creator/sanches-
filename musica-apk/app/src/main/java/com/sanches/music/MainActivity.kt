@@ -928,7 +928,7 @@ private fun Home(
                 shadowElevation = 12.dp
             ) {
                 key(current.id) {
-                    CompactPlayer(current, playing, onMiniOpen, onToggle)
+                    CompactPlayer(current, playing, onMiniOpen, onToggle, { controller?.seekToPreviousMediaItem() }, { controller?.seekToNextMediaItem() })
                 }
             }
         }
@@ -1521,8 +1521,19 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
 }
 
 @Composable
-private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle: () -> Unit) {
-    Surface(Modifier.fillMaxWidth().clickable { open() }, color = Color(0xFF101010), tonalElevation = 8.dp) {
+private fun CompactPlayer(
+    song: Song,
+    playing: Boolean,
+    open: () -> Unit,
+    toggle: () -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit
+) {
+    Surface(
+        Modifier.fillMaxWidth().clickable { open() },
+        color = Color(0xFF101010),
+        tonalElevation = 8.dp
+    ) {
         Column {
             LinearProgressIndicator(
                 progress = { if (playing) 0.45f else 0f },
@@ -1530,15 +1541,26 @@ private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle
                 color = Red,
                 trackColor = Panel2
             )
-            Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Artwork(song, 48.dp)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(song.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(song.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     Text(song.artist, fontSize = 12.sp, color = TextSoft, maxLines = 1)
                 }
-                IconButton(toggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Red) }
-                Icon(Icons.Default.QueueMusic, null, tint = Red, modifier = Modifier.padding(horizontal = 4.dp))
+                IconButton(onClick = onPrev) {
+                    Icon(Icons.Default.SkipPrevious, "Anterior", tint = Red, modifier = Modifier.size(28.dp))
+                }
+                IconButton(onClick = toggle) {
+                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Play/Pause", tint = Red, modifier = Modifier.size(28.dp))
+                }
+                IconButton(onClick = onNext) {
+                    Icon(Icons.Default.SkipNext, "Próxima", tint = Red, modifier = Modifier.size(28.dp))
+                }
+                Icon(Icons.Default.QueueMusic, "Fila", tint = Red, modifier = Modifier.padding(horizontal = 2.dp))
             }
         }
     }
