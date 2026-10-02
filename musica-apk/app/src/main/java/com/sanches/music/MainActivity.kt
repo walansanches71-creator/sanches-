@@ -966,30 +966,62 @@ private fun EditPlaylistDialog(
 private fun YoutubeDialog(onDismiss: () -> Unit, onDirectDownload: (String) -> Unit) {
     var url by remember { mutableStateOf("") }
     val context = LocalContext.current
-    AlertDialog(
-        onDismissRequest = onDismiss, containerColor = Panel,
-        title = { Text("YouTube • Sanches Music", color = Red, fontWeight = FontWeight.Bold) },
-        text = {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                AndroidView(factory = {
-                    WebView(context).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.mediaPlaybackRequiresUserGesture = false
-                        webViewClient = WebViewClient()
-                        loadUrl("https://m.youtube.com/")
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)
+    ) {
+        Surface(
+            Modifier.fillMaxWidth().fillMaxHeight(0.94f).padding(8.dp),
+            shape = RoundedCornerShape(24.dp), color = Panel, shadowElevation = 20.dp
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("YouTube", color = Red, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("Sanches Music", color = TextSoft, fontSize = 12.sp)
                     }
-                }, modifier = Modifier.fillMaxWidth().height(400.dp))
-                Text("YouTube fica dentro do Sanches Music. Downloads: somente arquivos/URLs cujo download você tenha autorização para fazer.", color = TextSoft, fontSize = 11.sp)
-                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("URL direta autorizada") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { if (url.isNotBlank()) { onDirectDownload(url); url = "" } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
-                    Icon(Icons.Default.Download, null); Spacer(Modifier.width(7.dp)); Text("Baixar arquivo")
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Fechar", tint = Color.White) }
+                }
+                AndroidView(
+                    factory = {
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.mediaPlaybackRequiresUserGesture = false
+                            settings.loadWithOverviewMode = true
+                            settings.useWideViewPort = true
+                            webViewClient = WebViewClient()
+                            loadUrl("https://m.youtube.com/")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Downloads: somente arquivos/URLs cujo download você tenha autorização para fazer.",
+                        color = TextSoft, fontSize = 11.sp
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = url, onValueChange = { url = it },
+                            label = { Text("URL direta autorizada") }, singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilledIconButton(
+                            onClick = { if (url.isNotBlank()) { onDirectDownload(url); url = "" } },
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)
+                        ) { Icon(Icons.Default.Download, "Baixar") }
+                    }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
-    )
+        }
+    }
 }
+
 @Composable
 private fun SearchBar(value: String, onValue: (String) -> Unit) {
     OutlinedTextField(
@@ -1247,9 +1279,34 @@ private fun FullPlayer(
 }
 
 @Composable
-private fun Artwork(bitmap: Bitmap?, size: Dp) {
-    if (bitmap != null) {
-        Image(bitmap.asImageBitmap(), null, Modifier.size(size).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop)
+private fun Artwork(albumId: Long, bitmap: Bitmap?, size: Dp) {
+    val context = LocalContext.current
+    val density = context.resources.displayMetrics.density
+    val targetPx = (size.value * density).toInt().coerceAtLeast(64)
+    val loaded by produceState<Bitmap?>(initialValue = bitmap, albumId, bitmap, targetPx) {
+        if (value == null && albumId > 0) {
+            value = artworkCache.get(albumId)
+            if (value == null) {
+                value = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val uri = Uri.parse("content://media/external/audio/albums/$albumId/album_art")
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                        val sample = generateSequence(1) { it * 2 }.takeWhile { it <= 32 }
+                            .lastOrNull { bounds.outWidth / it >= targetPx && bounds.outHeight / it >= targetPx } ?: 1
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
+                                inSampleSize = sample
+                                inPreferredConfig = Bitmap.Config.RGB_565
+                            })
+                        }
+                    }.getOrNull()
+                }?.also { artworkCache.put(albumId, it) }
+            }
+        }
+    }
+    if (loaded != null) {
+        Image(loaded!!.asImageBitmap(), null, Modifier.size(size).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop)
     } else {
         Box(
             Modifier.size(size).clip(RoundedCornerShape(20.dp)).background(
