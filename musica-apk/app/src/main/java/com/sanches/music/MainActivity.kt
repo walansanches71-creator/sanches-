@@ -118,6 +118,12 @@ class MainActivity : ComponentActivity() {
     private var showQueue by mutableStateOf(false)
     private var showSleepTimer by mutableStateOf(false)
     private var showEqualizer by mutableStateOf(false)
+    private var showMixer by mutableStateOf(false)
+    private var showHearing by mutableStateOf(false)
+    private var showStats by mutableStateOf(false)
+    private var hearingEnabled by mutableStateOf(true)
+    private var hearingThreshold by mutableFloatStateOf(0.80f)
+    private var hearingWarnedAt = 0L
     private var showBackup by mutableStateOf(false)
     private var showDuplicates by mutableStateOf(false)
     private var showEditorSongId by mutableStateOf<Long?>(null)
@@ -159,6 +165,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadSavedData()
+        hearingEnabled = prefs.getBoolean("hearing_enabled", true)
+        hearingThreshold = prefs.getFloat("hearing_threshold", 0.80f)
         setContent {
             SanchesTheme {
                 if (showPlayer && current != null) {
@@ -216,6 +224,10 @@ class MainActivity : ComponentActivity() {
                         onQueue = { showQueue = true },
                         onSleep = { showSleepTimer = true },
                         onEqualizer = { showEqualizer = true },
+                        onMixer = { showMixer = true },
+                        onHearing = { showHearing = true },
+                        onStats = { showStats = true },
+                        onSmartQueue = { smartQueue() },
                         onBackup = { showBackup = true },
                         onDuplicates = { showDuplicates = true },
                         onEditSong = { showEditorSongId = it }
@@ -269,6 +281,14 @@ class MainActivity : ComponentActivity() {
                 if (showQueue) QueueDialog(songs, current, { showQueue = false }) { playSong(it); showQueue = false }
                 if (showSleepTimer) SleepTimerDialog(sleepUntil, { showSleepTimer = false }) { setSleepTimer(it); showSleepTimer = false }
                 if (showEqualizer) EqualizerDialog({ showEqualizer = false }) { applyEqualizerPreset(it) }
+                if (showMixer) MixerDialog({ showMixer = false }) { bass, bands -> applyMixer(bass, bands) }
+                if (showHearing) HearingDialog(hearingEnabled, hearingThreshold, { showHearing = false }) { enabled, threshold ->
+                    hearingEnabled = enabled
+                    hearingThreshold = threshold
+                    prefs.edit().putBoolean("hearing_enabled", enabled).putFloat("hearing_threshold", threshold).apply()
+                    showHearing = false
+                }
+                if (showStats) StatsDialog(songs, playCounts, historyIds, favorites, { showStats = false })
                 if (showBackup) BackupDialog({ showBackup = false }, { exportBackup() }, { importBackup() })
                 if (showDuplicates) DuplicateDialog(songs, { showDuplicates = false }) { }
                 val editorSong = songs.firstOrNull { it.id == showEditorSongId }
@@ -893,6 +913,88 @@ private fun SettingsDialog(
             }
         },
         confirmButton = { TextButton(onClick = onClose) { Text("Fechar", color = Red) } }
+    )
+}
+
+
+@Composable
+private fun MixerDialog(onDismiss: () -> Unit, onApply: (Int, FloatArray) -> Unit) {
+    var bass by remember { mutableFloatStateOf(500f) }
+    val values = remember { mutableStateListOf(0f, 0f, 0f, 0f, 0f) }
+    val labels = listOf("60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Central de áudio", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Graves", color = TextSoft, fontSize = 11.sp)
+                Slider(bass, { bass = it }, valueRange = 0f..1000f, colors = SliderDefaults.colors(thumbColor = Red, activeTrackColor = Red))
+                labels.forEachIndexed { i, label ->
+                    Text(label, color = TextSoft, fontSize = 10.sp)
+                    Slider(values[i], { values[i] = it }, valueRange = -12f..12f, colors = SliderDefaults.colors(thumbColor = Red, activeTrackColor = Red))
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onApply(bass.toInt(), values.toFloatArray()); onDismiss() }) { Text("Aplicar", color = Red) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextSoft) } }
+    )
+}
+
+@Composable
+private fun HearingDialog(
+    enabled: Boolean,
+    threshold: Float,
+    onDismiss: () -> Unit,
+    onSave: (Boolean, Float) -> Unit
+) {
+    var active by remember { mutableStateOf(enabled) }
+    var level by remember { mutableFloatStateOf(threshold) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Proteção auditiva", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("O aviso usa o volume interno do player. Ele não mede dB reais no ouvido.", color = TextSoft, fontSize = 12.sp)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ativar aviso", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = active, onCheckedChange = { active = it })
+                }
+                Text("Limite: " + (level * 100).toInt() + "%", color = Color.White)
+                Slider(level, { level = it }, valueRange = 0.55f..1f, colors = SliderDefaults.colors(thumbColor = Red, activeTrackColor = Red))
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(active, level) }) { Text("Salvar", color = Red) } }
+    )
+}
+
+@Composable
+private fun StatsDialog(
+    songs: List<Song>,
+    playCounts: Map<Long, Int>,
+    historyIds: List<Long>,
+    favorites: Set<Long>,
+    onDismiss: () -> Unit
+) {
+    val top = songs.sortedByDescending { playCounts[it.id] ?: 0 }.take(5)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("Estatísticas", color = Red, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("Faixas: " + songs.size, color = Color.White)
+                Text("Favoritos: " + favorites.size, color = Color.White)
+                Text("Histórico: " + historyIds.size, color = Color.White)
+                Text("Reproduções: " + playCounts.values.sum(), color = Color.White)
+                Text("Mais tocadas", color = Red, fontWeight = FontWeight.Bold)
+                top.forEachIndexed { i, song ->
+                    Text((i + 1).toString() + ". " + song.title + " — " + (playCounts[song.id] ?: 0) + "x", color = TextSoft, maxLines = 1)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar", color = Red) } }
     )
 }
 
