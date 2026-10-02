@@ -18,6 +18,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -330,6 +331,7 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrackCard(song: Song, active: Boolean, selected: Boolean, onClick: (Song) -> Unit, onSelect: (Long) -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).combinedClickable(onClick = { onClick(song) }, onLongClick = { onSelect(song.id) })
