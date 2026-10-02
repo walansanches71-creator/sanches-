@@ -40,8 +40,32 @@ class MusicService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "com.sanches.music.EQ_PRESET") applyPreset(intent.getStringExtra("preset") ?: "Normal")
+        when (intent?.action) {
+            "com.sanches.music.EQ_PRESET" -> applyPreset(intent.getStringExtra("preset") ?: "Normal")
+            "com.sanches.music.EQ_BANDS" -> {
+                val bass = intent.getIntExtra("bass", 500)
+                val bands = intent.getFloatArrayExtra("bands") ?: floatArrayOf()
+                applyBands(bass, bands)
+            }
+        }
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun applyBands(bass: Int, values: FloatArray) {
+        val eq = equalizer ?: return
+        val boost = bassBoost ?: return
+        runCatching {
+            boost.setStrength(bass.coerceIn(0, 1000).toShort())
+            val range = eq.bandLevelRange
+            val count = eq.numberOfBands.toInt()
+            for (i in 0 until count) {
+                val source = if (values.isNotEmpty()) {
+                    values[(i * values.size / count).coerceIn(0, values.lastIndex)]
+                } else 0f
+                val millibels = (source * 100f).toInt()
+                eq.setBandLevel(i.toShort(), millibels.coerceIn(range[0].toInt(), range[1].toInt()).toShort())
+            }
+        }
     }
 
     private fun applyPreset(name: String) {
