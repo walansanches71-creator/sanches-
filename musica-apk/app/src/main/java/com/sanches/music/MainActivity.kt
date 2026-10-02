@@ -924,7 +924,9 @@ private fun Home(
                 color = Color(0xFF101010),
                 shadowElevation = 12.dp
             ) {
-                CompactPlayer(current, playing, onMiniOpen, onToggle)
+                key(current.id) {
+                    CompactPlayer(current, playing, onMiniOpen, onToggle)
+                }
             }
         }
 
