@@ -49,6 +49,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import android.util.LruCache
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -67,6 +70,7 @@ data class Song(
     val title: String,
     val artist: String,
     val album: String,
+    val albumId: Long,
     val uri: Uri,
     val art: Bitmap?
 )
@@ -84,6 +88,7 @@ private val Panel2 = Color(0xFF191919)
 private val Red = Color(0xFFE50914)
 private val RedBright = Color(0xFFFF3340)
 private val TextSoft = Color(0xFF8F8F8F)
+private val artworkCache = LruCache<Long, Bitmap>(48)
 
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
@@ -190,10 +195,16 @@ class MainActivity : ComponentActivity() {
 
                 if (showCreatePlaylist) {
                     CreatePlaylistDialog(
+                        songs = songs,
+                        initialSongId = songForPlaylist,
                         coverUri = pendingPlaylistCover,
                         onPickCover = { coverPickerLauncher.launch("image/*") },
-                        onDismiss = { showCreatePlaylist = false; pendingPlaylistCover = null },
-                        onCreate = { createPlaylist(it) }
+                        onDismiss = {
+                            showCreatePlaylist = false
+                            pendingPlaylistCover = null
+                            songForPlaylist = null
+                        },
+                        onCreate = { name, ids -> createPlaylist(name, ids) }
                     )
                 }
 
@@ -355,18 +366,21 @@ class MainActivity : ComponentActivity() {
         persistFavorites()
     }
 
-    private fun createPlaylist(name: String) {
+    private fun createPlaylist(name: String, selectedIds: Set<Long>) {
         val clean = name.trim()
         if (clean.isBlank()) return
+        val finalIds = selectedIds + listOfNotNull(songForPlaylist).toSet()
         playlists = playlists + Playlist(
             System.currentTimeMillis(),
             clean,
             pendingPlaylistCover?.toString(),
-            emptySet()
+            finalIds
         )
         pendingPlaylistCover = null
         showCreatePlaylist = false
+        songForPlaylist = null
         persistPlaylists()
+        Toast.makeText(this, finalIds.size.toString() + " faixa(s) adicionada(s) à playlist", Toast.LENGTH_SHORT).show()
     }
 
     private fun savePlaylistEdit(id: Long, name: String) {
@@ -457,12 +471,14 @@ class MainActivity : ComponentActivity() {
                     val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                     val artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                     val albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                    val albumIdCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
                     while (c.moveToNext()) {
                         val id = c.getLong(idCol)
                         val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                         val rawArtist = c.getString(artistCol)
                         result += Song(id, c.getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Sem título",
                             if (rawArtist.isNullOrBlank() || rawArtist == "<unknown>") "Artista desconhecido" else rawArtist,
+                            c.getLong(albumIdCol),
                             c.getString(albumCol) ?: "", uri, null)
                     }
                 }
@@ -1166,7 +1182,7 @@ private fun TrackCard(
             .padding(9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Artwork(song.art, 58.dp)
+        Artwork(song.albumId, song.art, 58.dp)
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -1200,7 +1216,7 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
         color = Panel2
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(song.art, 74.dp)
+            Artwork(song.albumId, song.art, 74.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("TOCANDO AGORA", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -1226,7 +1242,7 @@ private fun CompactPlayer(song: Song, playing: Boolean, open: () -> Unit, toggle
                 trackColor = Panel2
             )
             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(song.art, 48.dp)
+                Artwork(song.albumId, song.art, 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(song.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -1263,7 +1279,7 @@ private fun FullPlayer(
                 IconButton(onFavorite) { Icon(Icons.Default.Favorite, null, tint = Red) }
             }
             Spacer(Modifier.height(45.dp))
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Artwork(song.art, 310.dp) }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Artwork(song.albumId, song.art, 310.dp) }
             Spacer(Modifier.height(30.dp))
             Text(song.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, maxLines = 2)
             Text(song.artist, color = TextSoft, fontSize = 17.sp, maxLines = 1)
