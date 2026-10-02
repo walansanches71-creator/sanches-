@@ -928,7 +928,7 @@ private fun Home(
                 shadowElevation = 12.dp
             ) {
                 key(current.id) {
-                    CompactPlayer(current, playing, onMiniOpen, onToggle, { controller?.seekToPreviousMediaItem() }, { controller?.seekToNextMediaItem() })
+                    CompactPlayer(current, playing, onMiniOpen, onToggle, onPrev, onNext)
                 }
             }
         }
