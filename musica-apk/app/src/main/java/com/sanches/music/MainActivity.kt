@@ -10,6 +10,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import java.io.ByteArrayOutputStream
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -99,6 +102,10 @@ class MainActivity : ComponentActivity() {
     private var songs by mutableStateOf<List<Song>>(emptyList())
     private var current by mutableStateOf<Song?>(null)
     private var isPlaying by mutableStateOf(false)
+    private var shuffleEnabled by mutableStateOf(false)
+    private var repeatMode by mutableIntStateOf(androidx.media3.common.Player.REPEAT_MODE_OFF)
+    private var lastBackPressAt = 0L
+    private var notificationArtworkBytes: ByteArray? = null
     private var position by mutableLongStateOf(0L)
     private var duration by mutableLongStateOf(1L)
     private var showPlayer by mutableStateOf(false)
@@ -165,6 +172,17 @@ class MainActivity : ComponentActivity() {
                         { controller?.seekTo(it) },
                         { controller?.seekToNextMediaItem() },
                         { controller?.seekToPreviousMediaItem() },
+                        { controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false) },
+                        {
+                            val next = when (controller?.repeatMode) {
+                                androidx.media3.common.Player.REPEAT_MODE_OFF -> androidx.media3.common.Player.REPEAT_MODE_ONE
+                                androidx.media3.common.Player.REPEAT_MODE_ONE -> androidx.media3.common.Player.REPEAT_MODE_ALL
+                                else -> androidx.media3.common.Player.REPEAT_MODE_OFF
+                            }
+                            controller?.repeatMode = next
+                        },
+                        shuffleEnabled,
+                        repeatMode,
                         { toggleFavorite(current!!.id) }
                     )
                 } else {
@@ -455,6 +473,8 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     val c = controller ?: return@runOnUiThread
                     isPlaying = c.isPlaying
+                    shuffleEnabled = c.shuffleModeEnabled
+                    repeatMode = c.repeatMode
                     position = c.currentPosition.coerceAtLeast(0)
                     duration = if (c.duration > 0) c.duration else 1
                     val index = c.currentMediaItemIndex
@@ -467,6 +487,54 @@ class MainActivity : ComponentActivity() {
 
     private fun toggle() {
         controller?.let { if (it.isPlaying) it.pause() else it.play() }
+    }
+
+    override fun onBackPressed() {
+        if (showYoutube && !youtubePip) {
+            closeYoutubeAndResumeMusic()
+            return
+        }
+        if (showPlayer) {
+            showPlayer = false
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastBackPressAt <= 1800L) {
+            super.onBackPressed()
+        } else {
+            lastBackPressAt = now
+            Toast.makeText(this, "Aperte duas vezes para sair", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun buildNotificationArtwork(): ByteArray? {
+        if (notificationArtworkBytes != null) return notificationArtworkBytes
+        return runCatching {
+            val size = 512
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(android.graphics.Color.rgb(229, 9, 20))
+
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.WHITE
+                textAlign = Paint.Align.CENTER
+                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+            }
+
+            paint.textSize = 190f
+            canvas.drawText("☠", size / 2f, 270f, paint)
+            paint.textSize = 82f
+            canvas.drawText("☠", 92f, 445f, paint)
+            canvas.drawText("☠", 420f, 445f, paint)
+
+            ByteArrayOutputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.toByteArray()
+            }.also {
+                notificationArtworkBytes = it
+            }
+        }.getOrNull()
     }
 
     private fun loadSongs() {
@@ -516,6 +584,10 @@ class MainActivity : ComponentActivity() {
                         .setAlbumTitle(it.album)
                         .setArtworkUri(
                             if (it.albumId > 0) Uri.parse("content://media/external/audio/albums/" + it.albumId + "/album_art") else null
+                        )
+                        .setArtworkData(
+                            buildNotificationArtwork(),
+                            MediaMetadata.PICTURE_TYPE_ILLUSTRATION
                         )
                         .build()
                 ).build()
@@ -1306,6 +1378,10 @@ private fun FullPlayer(
     onSeek: (Long) -> Unit,
     onNext: () -> Unit,
     onPrev: () -> Unit,
+    onShuffle: () -> Unit,
+    onRepeat: () -> Unit,
+    shuffleEnabled: Boolean,
+    repeatMode: Int,
     onFavorite: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF30070A), Ink, Color(0xFF080808))))) {
@@ -1313,8 +1389,7 @@ private fun FullPlayer(
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onBack) { Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(32.dp)) }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("NOW PLAYING", color = Red, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Text("Sanches Music", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("Sanches Music", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
                 IconButton(onFavorite) { Icon(Icons.Default.Favorite, null, tint = Red) }
             }
@@ -1337,7 +1412,9 @@ private fun FullPlayer(
             }
             Spacer(Modifier.height(20.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
-                IconButton({}) { Icon(Icons.Default.Shuffle, null, tint = Red) }
+                IconButton(onShuffle) {
+                    Icon(Icons.Default.Shuffle, null, tint = if (shuffleEnabled) Color.White else Red)
+                }
                 IconButton(onPrev) { Icon(Icons.Default.SkipPrevious, null, Modifier.size(38.dp), tint = Red) }
                 FilledIconButton(
                     onToggle,
@@ -1347,7 +1424,13 @@ private fun FullPlayer(
                     Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(40.dp))
                 }
                 IconButton(onNext) { Icon(Icons.Default.SkipNext, null, Modifier.size(38.dp), tint = Red) }
-                IconButton({}) { Icon(Icons.Default.Repeat, null, tint = Red) }
+                IconButton(onRepeat) {
+                    Icon(
+                        if (repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                        null,
+                        tint = if (repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) Red else Color.White
+                    )
+                }
             }
             Spacer(Modifier.height(16.dp))
         }
