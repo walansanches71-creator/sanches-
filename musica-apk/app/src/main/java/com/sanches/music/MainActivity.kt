@@ -2,6 +2,7 @@ package com.sanches.music
 
 import android.Manifest
 import android.content.ComponentName
+import androidx.activity.result.IntentSenderRequest
 import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -16,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,13 +54,12 @@ data class Song(
     val art: Bitmap?
 )
 
-private val Ink = Color(0xFF090B18)
-private val Panel = Color(0xFF12152A)
-private val Panel2 = Color(0xFF1A1E37)
-private val Violet = Color(0xFF8B5CF6)
-private val Mint = Color(0xFF22D3B6)
-private val TextSoft = Color(0xFF9298B5)
-private val Gold = Color(0xFFFFC857)
+private val Ink = Color(0xFF050505)
+private val Panel = Color(0xFF111111)
+private val Panel2 = Color(0xFF191919)
+private val Red = Color(0xFFE50914)
+private val RedBright = Color(0xFFFF3340)
+private val TextSoft = Color(0xFF8F8F8F)
 
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
@@ -69,9 +70,19 @@ class MainActivity : ComponentActivity() {
     private var duration by mutableLongStateOf(1L)
     private var showPlayer by mutableStateOf(false)
     private var query by mutableStateOf("")
+    private var selectedIds by mutableStateOf<Set<Long>>(emptySet())
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) loadSongs()
+    }
+
+    private val deleteLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            selectedIds = emptySet()
+            loadSongs()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,7 +93,12 @@ class MainActivity : ComponentActivity() {
                     FullPlayer(current!!, isPlaying, position, duration, { showPlayer = false }, { toggle() },
                         { controller?.seekTo(it) }, { controller?.seekToNextMediaItem() }, { controller?.seekToPreviousMediaItem() })
                 } else {
-                    Home(songs, current, isPlaying, query, { query = it }, { playSong(it) }, { showPlayer = true }, { toggle() })
+                    Home(
+    songs, current, isPlaying, query, selectedIds,
+    { query = it }, { playSong(it) }, { showPlayer = true }, { toggle() },
+    { id -> selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id },
+    { deleteSelected() }, { selectedIds = emptySet() }
+)
                 }
             }
         }
@@ -171,6 +187,19 @@ class MainActivity : ComponentActivity() {
         showPlayer = true
     }
 
+    private fun deleteSelected() {
+        val targets = songs.filter { selectedIds.contains(it.id) }
+        if (targets.isEmpty()) return
+        if (Build.VERSION.SDK_INT >= 30) {
+            val request = MediaStore.createDeleteRequest(contentResolver, targets.map { it.uri })
+            deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+        } else {
+            targets.forEach { runCatching { contentResolver.delete(it.uri, null, null) } }
+            selectedIds = emptySet()
+            loadSongs()
+        }
+    }
+
     override fun onDestroy() {
         controller?.release()
         super.onDestroy()
@@ -180,15 +209,16 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SanchesTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = darkColorScheme(
-        background = Ink, surface = Panel, primary = Violet, secondary = Mint,
+        background = Ink, surface = Panel, primary = Red, secondary = Red,
         onBackground = Color.White, onSurface = Color.White
     ), content = content)
 }
 
 @Composable
 private fun Home(
-    songs: List<Song>, current: Song?, playing: Boolean, query: String,
-    onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit
+    songs: List<Song>, current: Song?, playing: Boolean, query: String, selectedIds: Set<Long>,
+    onQuery: (String) -> Unit, onSong: (Song) -> Unit, onMiniOpen: () -> Unit, onToggle: () -> Unit,
+    onSelect: (Long) -> Unit, onDelete: () -> Unit, onClearSelection: () -> Unit
 ) {
     val filtered = remember(songs, query) {
         if (query.isBlank()) songs else songs.filter {
@@ -197,12 +227,12 @@ private fun Home(
     }
 
     Box(Modifier.fillMaxSize().background(
-        Brush.verticalGradient(listOf(Color(0xFF090B18), Color(0xFF11102A), Color(0xFF171132)))
+        Brush.verticalGradient(listOf(Color(0xFF050505), Color(0xFF0B0B0B), Color(0xFF180607)))
     )) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("SANCHES", color = Mint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
+                    Text("SANCHES", color = Red, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                     Text("Music", fontSize = 30.sp, fontWeight = FontWeight.Black)
                 }
                 Surface(shape = CircleShape, color = Panel2, modifier = Modifier.size(46.dp)) {
@@ -219,7 +249,23 @@ private fun Home(
                 QuickChip("PLAYLISTS", "0", Gold)
             }
 
-            if (current != null) NowCard(current, playing, onMiniOpen, onToggle)
+            if (current != null && selectedIds.isEmpty()) NowCard(current, playing, onMiniOpen, onToggle)
+            if (selectedIds.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(selectedIds.size.toString() + " selecionada(s)", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClearSelection) { Icon(Icons.Default.Close, "Cancelar", tint = TextSoft) }
+                    FilledIconButton(onDelete, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Red)) {
+                        Icon(Icons.Default.Delete, "Apagar")
+                    }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (query.isBlank()) "Sua biblioteca" else "Resultados", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Text(filtered.size.toString(), color = TextSoft, fontSize = 14.sp)
+                }
+            }
 
             Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (query.isBlank()) "Sua biblioteca" else "Resultados", fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -231,7 +277,7 @@ private fun Home(
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 110.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 items(filtered, key = { it.id }) { song ->
-                    TrackCard(song, current?.id == song.id && playing, onSong)
+                    TrackCard(song, current?.id == song.id && playing, selectedIds.contains(song.id), onSong, onSelect)
                 }
             }
 
@@ -282,19 +328,23 @@ private fun NowCard(song: Song, playing: Boolean, open: () -> Unit, toggle: () -
 }
 
 @Composable
-private fun TrackCard(song: Song, active: Boolean, onClick: (Song) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onClick(song) }
-        .background(if (active) Color(0xFF211A42) else Color.Transparent).padding(9.dp),
+private fun TrackCard(song: Song, active: Boolean, selected: Boolean, onClick: (Song) -> Unit, onSelect: (Long) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).combinedClickable(onClick = { onClick(song) }, onLongClick = { onSelect(song.id) })
+        .background(if (selected) Color(0xFF3A0B0F) else if (active) Color(0xFF21090B) else Color.Transparent).padding(9.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Artwork(song.art, 58.dp)
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
-            Text(song.title, color = if (active) Mint else Color.White, fontSize = 17.sp,
+            Text(song.title, color = if (selected || active) RedBright else Color.White, fontSize = 17.sp,
                 fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
             Text(song.artist + if (song.album.isNotBlank()) "  •  " + song.album else "",
                 color = TextSoft, fontSize = 13.sp, maxLines = 1)
         }
-        IconButton(onClick = {}) { Icon(Icons.Default.MoreHoriz, null, tint = TextSoft) }
+        if (selected) {
+            Icon(Icons.Default.CheckCircle, null, tint = Red, modifier = Modifier.padding(horizontal = 10.dp))
+        } else {
+            IconButton(onClick = {}) { Icon(Icons.Default.MoreHoriz, null, tint = TextSoft) }
+        }
     }
 }
 
@@ -325,7 +375,7 @@ private fun FullPlayer(
     onNext: () -> Unit, onPrev: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(
-        Brush.verticalGradient(listOf(Color(0xFF1C1738), Ink, Color(0xFF071D25)))
+        Brush.verticalGradient(listOf(Color(0xFF30070A), Ink, Color(0xFF080808)))
     )) {
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
