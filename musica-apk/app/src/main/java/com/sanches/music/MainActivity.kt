@@ -386,6 +386,45 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Sleep Timer: $minutes min", Toast.LENGTH_SHORT).show()
     }
 
+    private fun applyMixer(bass: Int, bands: FloatArray) {
+        startService(
+            Intent(this, MusicService::class.java)
+                .setAction("com.sanches.music.EQ_BANDS")
+                .putExtra("bass", bass)
+                .putExtra("bands", bands)
+        )
+        Toast.makeText(this, "Mixer aplicado", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun smartQueue() {
+        val c = controller ?: return
+        if (songs.isEmpty()) return
+        val ordered = songs.sortedWith(
+            compareByDescending<Song> { favorites.contains(it.id) }
+                .thenBy { playCounts[it.id] ?: 0 }
+                .thenBy { it.title.lowercase() }
+        )
+        val items = ordered.map {
+            MediaItem.Builder()
+                .setMediaId(it.id.toString())
+                .setUri(it.uri)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(it.title)
+                        .setArtist(it.artist)
+                        .setAlbumTitle(it.album)
+                        .build()
+                ).build()
+        }
+        c.setMediaItems(items)
+        c.prepare()
+        c.play()
+        current = ordered.firstOrNull()
+        current?.let { recordPlay(it.id) }
+        showPlayer = true
+        Toast.makeText(this, "Fila inteligente criada", Toast.LENGTH_SHORT).show()
+    }
+
     private fun applyEqualizerPreset(preset: String) {
         startService(Intent(this, MusicService::class.java).setAction("com.sanches.music.EQ_PRESET").putExtra("preset", preset))
         Toast.makeText(this, "Equalizador: $preset", Toast.LENGTH_SHORT).show()
@@ -527,6 +566,11 @@ class MainActivity : ComponentActivity() {
                     duration = if (c.duration > 0) c.duration else 1
                     val index = c.currentMediaItemIndex
                     if (index in songs.indices) current = songs[index]
+                    if (hearingEnabled && c.isPlaying && c.volume >= hearingThreshold &&
+                        System.currentTimeMillis() - hearingWarnedAt > 60000L) {
+                        hearingWarnedAt = System.currentTimeMillis()
+                        Toast.makeText(this, "Volume alto — reduza o volume para proteger sua audição.", Toast.LENGTH_LONG).show()
+                    }
                 }
                 Thread.sleep(400)
             }
