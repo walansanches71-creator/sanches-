@@ -226,7 +226,7 @@ class MainActivity : ComponentActivity() {
                 if (showSleepTimer) SleepTimerDialog(sleepUntil, { showSleepTimer = false }) { setSleepTimer(it); showSleepTimer = false }
                 if (showEqualizer) EqualizerDialog({ showEqualizer = false }) { applyEqualizerPreset(it) }
                 if (showBackup) BackupDialog({ showBackup = false }, { exportBackup() }, { importBackup() })
-                if (showDuplicates) DuplicateDialog(songs, { showDuplicates = false })
+                if (showDuplicates) DuplicateDialog(songs, { showDuplicates = false }) { }
                 { /* duplicate scanner is informational; deletion remains through normal multi-select */ }
                 val editorSong = songs.firstOrNull { it.id == showEditorSongId }
                 if (editorSong != null) SongEditorDialog(editorSong, { showEditorSongId = null }) { t, a, al -> editSong(editorSong, t, a, al) }
@@ -1335,28 +1335,6 @@ private fun FullPlayer(
             Spacer(Modifier.height(35.dp))
         }
     }
-}
-
-@Composable
-private fun SearchBar(value: String, onValue: (String) -> Unit) {
-    OutlinedTextField(
-        value,
-        onValue,
-        Modifier.fillMaxWidth().padding(horizontal = 22.dp),
-        singleLine = true,
-        placeholder = { Text("Buscar música, artista ou álbum", color = TextSoft) },
-        leadingIcon = { Icon(Icons.Default.Search, null, tint = Red) },
-        trailingIcon = {
-            if (value.isNotEmpty()) IconButton({ onValue("") }) { Icon(Icons.Default.Close, null, tint = TextSoft) }
-        },
-        shape = RoundedCornerShape(18.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            unfocusedContainerColor = Panel,
-            focusedContainerColor = Panel2,
-            unfocusedBorderColor = Color.Transparent,
-            focusedBorderColor = Red
-        )
-    )
 }
 
 @Composable
