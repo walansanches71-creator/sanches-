@@ -140,8 +140,8 @@ public class MainActivity extends Activity {
             "var el=ev.target;if(!el)return;var img=el.closest?el.closest('img'):null;"+
             "if(!img)return;ev.preventDefault();ev.stopPropagation();"+
             "var box=img.closest('[data-message-id]')||img.closest('[class*=message]')||img.parentElement;"+
-            "var link='';var a=(box&&box.querySelector)?box.querySelector('a[href*="/c/"],a[href*="t.me/"]'):null;"+
-            "if(a)link=a.href; if(!link){var as=document.querySelectorAll('a[href*="/c/"],a[href*="t.me/"]');"+
+            "var link='';var a=(box&&box.querySelector)?box.querySelector(\"a[href*='/c/'],a[href*='t.me/' ]\"):null;"+
+            "if(a)link=a.href; if(!link){var as=document.querySelectorAll(\"a[href*='/c/'],a[href*='t.me/' ]\");"+
             "for(var i=0;i<as.length;i++){if(as[i].getBoundingClientRect().top<=img.getBoundingClientRect().bottom){link=as[i].href;}}}"+
             "var text=box?box.innerText:''; if(!text)text=document.title||'';"+
             "var src=img.currentSrc||img.src||'';"+
@@ -190,10 +190,9 @@ public class MainActivity extends Activity {
         capturedImageUrl=src==null?"":src;
         capturedLink=link==null?"":link;
         capturedTitle=cleanTitle(text);
-        if(capturedImageUrl.startsWith("blob:") || capturedImageUrl.startsWith("data:")){
+        if(capturedImageUrl.length()>0){
             fetchImageInTelegram(capturedImageUrl);
         }else{
-            capturedFile=null;
             publishCaptured();
         }
     }
