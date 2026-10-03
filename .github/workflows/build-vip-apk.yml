@@ -1,4 +1,7 @@
 name: Build VIP Camisas APK
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -30,3 +33,13 @@ jobs:
         with:
           name: VIP-Camisas-debug
           path: vip-apk/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Save APK to repository
+        run: |
+          mkdir -p ../builds
+          cp app/build/outputs/apk/debug/app-debug.apk ../builds/VIP-Camisas-v2-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ../builds/VIP-Camisas-v2-debug.apk
+          git diff --cached --quiet || git commit -m "build: publish VIP Camisas APK"
+          git push
