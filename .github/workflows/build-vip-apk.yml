@@ -1,0 +1,23 @@
+name: Build VIP Camisas APK
+on:
+  push:
+    paths:
+      - 'vip-apk/**'
+      - '.github/workflows/build-vip-apk.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10'
+      - name: Build debug APK
+        working-directory: vip-apk
+        run: gradle assembleDebug --no-daemon
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VIP-Camisas-debug
+          path: vip-apk/app/build/outputs/apk/debug/app-debug.apk
