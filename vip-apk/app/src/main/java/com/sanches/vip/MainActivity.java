@@ -211,7 +211,7 @@ public class MainActivity extends Activity {
     }
 
     void publishCaptured(){
-        if(capturedImageUrl.length()==0){Toast.makeText(this,"Não consegui pegar a foto.",Toast.LENGTH_LONG).show();return;}
+        if(capturedImageUrl.length()==0 && (capturedFile==null || !capturedFile.exists())){Toast.makeText(this,"Não consegui pegar a foto.",Toast.LENGTH_LONG).show();return;}
         runOnUiThread(()->{
             Toast.makeText(this,"⚡ Capturada! Publicando no site...",Toast.LENGTH_SHORT).show();
             showSite();
@@ -230,7 +230,7 @@ public class MainActivity extends Activity {
             "set(/telegram|mensagem.*telegram|link.*telegram/,'"+link+"');"+
             "set(/imagem.*url|url.*imagem|image.*url/,'"+image+"');"+
             "set(/título|titulo|title/,'"+title+"');"+
-            "var file=document.querySelector('input[type="file"]');"+
+            "var file=document.querySelector(\"input[type='file']\");"+
             "if(file){file.click();setTimeout(function(){var buttons=[...document.querySelectorAll('button')];var save=buttons.find(b=>/salvar/i.test((b.innerText||'').trim()));if(save)save.click();},1800);return 'FILE'}"+
             "var buttons=[...document.querySelectorAll('button')];"+
             "var save=buttons.find(b=>/salvar/i.test((b.innerText||'').trim()));"+
@@ -270,7 +270,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void captureCandidateFailed(String error){
-            runOnUiThread(()->Toast.makeText(MainActivity.this,"A imagem está protegida pelo Telegram. Use Compartilhar > VIP Camisas.",Toast.LENGTH_LONG).show());
+            runOnUiThread(()->{
+                capturedFile=null;
+                if(capturedImageUrl.length()>0) publishCaptured();
+                else Toast.makeText(MainActivity.this,"Não consegui baixar a foto do Telegram.",Toast.LENGTH_LONG).show();
+            });
         }
     }
 
