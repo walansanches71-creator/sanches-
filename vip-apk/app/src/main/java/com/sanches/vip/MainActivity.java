@@ -140,8 +140,8 @@ public class MainActivity extends Activity {
             "var el=ev.target;if(!el)return;var img=el.closest?el.closest('img'):null;"+
             "if(!img)return;ev.preventDefault();ev.stopPropagation();"+
             "var box=img.closest('[data-message-id]')||img.closest('[class*=message]')||img.parentElement;"+
-            "var link='';var a=(box&&box.querySelector)?box.querySelector('a[href*=/c/],a[href*="t.me/"]'):null;"+
-            "if(a)link=a.href; if(!link){var as=document.querySelectorAll('a[href*=/c/],a[href*="t.me/"]');"+
+            "var link='';var a=(box&&box.querySelector)?box.querySelector('a[href*="/c/"],a[href*="t.me/"]'):null;"+
+            "if(a)link=a.href; if(!link){var as=document.querySelectorAll('a[href*="/c/"],a[href*="t.me/"]');"+
             "for(var i=0;i<as.length;i++){if(as[i].getBoundingClientRect().top<=img.getBoundingClientRect().bottom){link=as[i].href;}}}"+
             "var text=box?box.innerText:''; if(!text)text=document.title||'';"+
             "var src=img.currentSrc||img.src||'';"+
@@ -231,6 +231,8 @@ public class MainActivity extends Activity {
             "set(/telegram|mensagem.*telegram|link.*telegram/,'"+link+"');"+
             "set(/imagem.*url|url.*imagem|image.*url/,'"+image+"');"+
             "set(/título|titulo|title/,'"+title+"');"+
+            "var file=document.querySelector('input[type="file"]');"+
+            "if(file){file.click();setTimeout(function(){var buttons=[...document.querySelectorAll('button')];var save=buttons.find(b=>/salvar/i.test((b.innerText||'').trim()));if(save)save.click();},1800);return 'FILE'}"+
             "var buttons=[...document.querySelectorAll('button')];"+
             "var save=buttons.find(b=>/salvar/i.test((b.innerText||'').trim()));"+
             "if(save){save.click();return 'OK'} return 'FORM_NOT_FOUND';"+
