@@ -1,0 +1,41 @@
+name: Build Produção VIP Setores APK
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'setor-apk/**'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build APK
+        working-directory: setor-apk
+        run: gradle assembleDebug --no-daemon
+      - name: Persist APK
+        run: |
+          mkdir -p builds
+          cp setor-apk/app/build/outputs/apk/debug/app-debug.apk builds/Producao-VIP-Setores-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Producao-VIP-Setores-debug
+          path: setor-apk/app/build/outputs/apk/debug/app-debug.apk
+      - name: Commit APK
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Producao-VIP-Setores-debug.apk
+          git diff --cached --quiet || git commit -m 'build: Producao VIP Setores APK'
+          git push
