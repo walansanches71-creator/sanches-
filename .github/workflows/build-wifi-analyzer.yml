@@ -2,7 +2,6 @@ name: Build Sanches WiFi Analyzer
 on:
   workflow_dispatch:
   push:
-    paths: ['wifi-analyzer/**']
 permissions: { contents: write }
 jobs:
   build:
