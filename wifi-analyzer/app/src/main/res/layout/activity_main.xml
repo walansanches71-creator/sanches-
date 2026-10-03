@@ -1,4 +1,4 @@
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/scroll" android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true" android:background="#0B1020">
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/scroll" android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true" android:background="#0B1020">
 <LinearLayout android:id="@+id/root" android:orientation="vertical" android:paddingLeft="18dp" android:paddingRight="18dp" android:paddingTop="14dp" android:paddingBottom="28dp" android:layout_width="match_parent" android:layout_height="wrap_content">
 <TextView android:text="SANCHES WiFi" android:textColor="#FFFFFF" android:textSize="27sp" android:textStyle="bold" android:layout_width="match_parent" android:layout_height="wrap_content"/>
 <TextView android:text="ANALISADOR DE REDE • BAIXO CONSUMO" android:textColor="#8290AE" android:textSize="11sp" android:letterSpacing="0.08" android:layout_marginTop="2dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
@@ -13,4 +13,4 @@
 <TextView android:id="@+id/scanInfo" android:text="Toque em escanear para atualizar" android:textColor="#8290AE" android:textSize="12sp" android:layout_marginTop="3dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
 <LinearLayout android:id="@+id/networks" android:orientation="vertical" android:layout_marginTop="10dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
 <TextView android:id="@+id/footer" android:text="Monitoramento econômico: atualizações espaçadas para reduzir bateria.\nO Android pode limitar a frequência de varreduras Wi-Fi." android:textColor="#65728E" android:textSize="11sp" android:lineSpacingExtra="3dp" android:layout_marginTop="20dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
-</LinearLayout></androidx.core.widget.NestedScrollView>
+</LinearLayout></ScrollView>
