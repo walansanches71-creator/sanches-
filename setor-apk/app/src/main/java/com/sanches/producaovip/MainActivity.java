@@ -12,12 +12,22 @@ import java.util.*;
 
 public class MainActivity extends Activity {
     private static final String SITE = "https://producao-vip.pages.dev/painel";
+
     private WebView web;
     private LinearLayout sectors;
     private TextView current;
-    private final String[] names = {"PRODUÇÃO GERAL","COSTURA","ESTAMPARIA","IMPRESSÃO","CORTE A LASER","CALANDRA","ACABAMENTO","EXPEDIÇÃO"};
-    private final String[] keys = {"geral","costura","estamparia","impressao","laser","calandra","acabamento","expedicao"};
-    private int selected = 0;
+    private TextView gateTitle;
+    private int selected = -1;
+
+    // O APK é exclusivo para acesso operacional por setor.
+    private final String[] names = {
+        "COSTURA", "ESTAMPARIA", "IMPRESSÃO", "CORTE A LASER",
+        "CALANDRA", "ACABAMENTO", "EXPEDIÇÃO"
+    };
+    private final String[] keys = {
+        "costura", "estamparia", "impressao", "laser",
+        "calandra", "acabamento", "expedicao"
+    };
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -25,15 +35,30 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(7,16,31));
         buildUi();
         setupWeb();
-        selected = getPreferences(0).getInt("sector", 0);
-        selectSector(selected);
+
+        int saved = getPreferences(0).getInt("sector", -1);
+        if (saved >= 0 && saved < keys.length) {
+            selected = saved;
+            openSector(selected);
+        } else {
+            showSectorGate();
+        }
     }
 
     private TextView tv(String s, float size, int color) {
         TextView v = new TextView(this);
-        v.setText(s); v.setTextSize(size); v.setTextColor(color);
+        v.setText(s);
+        v.setTextSize(size);
+        v.setTextColor(color);
         v.setGravity(Gravity.CENTER_VERTICAL);
         return v;
+    }
+
+    private GradientDrawable bg(int color, float radius) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(radius);
+        return d;
     }
 
     private void buildUi() {
@@ -42,56 +67,40 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(7,16,31));
 
         LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setPadding(18,12,18,8);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(18, 12, 18, 8);
 
-        TextView title = tv("PRODUÇÃO VIP",20,Color.WHITE);
+        LinearLayout brand = new LinearLayout(this);
+        brand.setOrientation(LinearLayout.VERTICAL);
+
+        TextView title = tv("PRODUÇÃO VIP", 20, Color.WHITE);
         title.setTypeface(null, Typeface.BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(-1,34));
-        current = tv("SETOR: PRODUÇÃO GERAL",12,Color.rgb(108,210,255));
-        header.addView(current, new LinearLayout.LayoutParams(-1,24));
+        brand.addView(title, new LinearLayout.LayoutParams(-1, 30));
+
+        current = tv("ACESSO POR SETOR", 11, Color.rgb(108,210,255));
+        brand.addView(current, new LinearLayout.LayoutParams(-1, 22));
+        header.addView(brand, new LinearLayout.LayoutParams(0, 58, 1));
+
+        Button change = new Button(this);
+        change.setText("SETOR");
+        change.setTextSize(11);
+        change.setTextColor(Color.WHITE);
+        change.setOnClickListener(v -> showSectorGate());
+        header.addView(change, new LinearLayout.LayoutParams(82, 46));
+
         root.addView(header);
 
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        sectors = new LinearLayout(this);
-        sectors.setOrientation(LinearLayout.HORIZONTAL);
-        sectors.setPadding(12,4,12,10);
-        for (int i=0;i<names.length;i++) {
-            final int idx=i;
-            TextView chip=tv(names[i],12,Color.WHITE);
-            chip.setGravity(Gravity.CENTER);
-            chip.setTypeface(null,Typeface.BOLD);
-            chip.setPadding(18,0,18,0);
-            chip.setBackgroundColor(Color.rgb(25,38,61));
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,44);
-            p.setMargins(4,0,4,0);
-            sectors.addView(chip,p);
-            chip.setOnClickListener(v->selectSector(idx));
-        }
-        hs.addView(sectors);
-        root.addView(hs,new LinearLayout.LayoutParams(-1,58));
-
-        LinearLayout bar=new LinearLayout(this);
-        bar.setPadding(14,2,14,8);
-        Button refresh=new Button(this);
-        refresh.setText("↻  ATUALIZAR");
-        refresh.setOnClickListener(v->web.reload());
-        Button home=new Button(this);
-        home.setText("⌂  PAINEL");
-        home.setOnClickListener(v->selectSector(selected));
-        bar.addView(refresh,new LinearLayout.LayoutParams(0,48,1));
-        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(0,48,1); hp.setMargins(8,0,0,0);
-        bar.addView(home,hp);
-        root.addView(bar);
-
-        web=new WebView(this);
-        root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
+        web = new WebView(this);
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
+
+        // Tela inicial de seleção: nenhum painel geral/admin é exibido.
+        gateTitle = new TextView(this);
     }
 
     private void setupWeb() {
-        WebSettings s=web.getSettings();
+        WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
@@ -100,33 +109,144 @@ public class MainActivity extends Activity {
         s.setDisplayZoomControls(false);
         s.setLoadsImagesAutomatically(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        web.setWebViewClient(new WebViewClient(){
-            @Override public boolean shouldOverrideUrlLoading(WebView v,String url){ v.loadUrl(url); return true; }
-            @Override public void onPageFinished(WebView v,String url){ injectSector(); }
+
+        web.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                // Mantém a navegação dentro do site operacional.
+                if (url.startsWith("https://producao-vip.pages.dev/")) {
+                    v.loadUrl(url);
+                }
+                return true;
+            }
+
+            @Override public void onPageFinished(WebView v, String url) {
+                injectSector();
+            }
         });
         web.setWebChromeClient(new WebChromeClient());
     }
 
-    private void selectSector(int idx) {
-        if(idx<0||idx>=keys.length) idx=0;
-        selected=idx;
-        getPreferences(0).edit().putInt("sector",idx).apply();
-        current.setText("SETOR: "+names[idx]);
-        for(int i=0;i<sectors.getChildCount();i++) {
-            TextView c=(TextView)sectors.getChildAt(i);
-            c.setBackgroundColor(i==idx?Color.rgb(25,126,196):Color.rgb(25,38,61));
+    private void showSectorGate() {
+        web.setVisibility(View.GONE);
+
+        LinearLayout gate = new LinearLayout(this);
+        gate.setOrientation(LinearLayout.VERTICAL);
+        gate.setGravity(Gravity.CENTER_HORIZONTAL);
+        gate.setPadding(18, 26, 18, 22);
+        gate.setBackgroundColor(Color.rgb(7,16,31));
+
+        TextView icon = tv("▣", 54, Color.rgb(75,196,255));
+        icon.setGravity(Gravity.CENTER);
+        gate.addView(icon, new LinearLayout.LayoutParams(-1, 72));
+
+        TextView t = tv("ACESSO DOS SETORES", 22, Color.WHITE);
+        t.setTypeface(null, Typeface.BOLD);
+        t.setGravity(Gravity.CENTER);
+        gate.addView(t, new LinearLayout.LayoutParams(-1, 40));
+
+        TextView sub = tv("Selecione o setor de trabalho para entrar no painel operacional.", 13, Color.rgb(165,180,200));
+        sub.setGravity(Gravity.CENTER);
+        sub.setPadding(18, 0, 18, 16);
+        gate.addView(sub, new LinearLayout.LayoutParams(-1, 52));
+
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+
+        for (int row = 0; row < names.length; row += 2) {
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+
+            addSectorButton(line, row);
+            if (row + 1 < names.length) addSectorButton(line, row + 1);
+
+            grid.addView(line, new LinearLayout.LayoutParams(-1, 62));
         }
-        web.loadUrl(SITE+"?setor="+keys[idx]);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(grid);
+        gate.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        ((ViewGroup) web.getParent()).removeView(web);
+        ((ViewGroup) gate.getParent());
+        LinearLayout root = (LinearLayout) findViewById(android.R.id.content).getChildAt(0);
+        root.addView(gate, new LinearLayout.LayoutParams(-1, 0, 1));
+    }
+
+    private void addSectorButton(LinearLayout row, int idx) {
+        Button b = new Button(this);
+        b.setText(names[idx]);
+        b.setTextSize(12);
+        b.setTextColor(Color.WHITE);
+        b.setAllCaps(false);
+        b.setTypeface(null, Typeface.BOLD);
+        b.setOnClickListener(v -> {
+            selected = idx;
+            getPreferences(0).edit().putInt("sector", idx).apply();
+            ((ViewGroup) v.getParent().getParent()).getParent();
+            rebuildForSector();
+        });
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 56, 1);
+        p.setMargins(5, 4, 5, 4);
+        row.addView(b, p);
+    }
+
+    private void rebuildForSector() {
+        LinearLayout root = (LinearLayout) findViewById(android.R.id.content).getChildAt(0);
+
+        // Remove a tela de seleção, se existir.
+        while (root.getChildCount() > 2) {
+            root.removeViewAt(2);
+        }
+
+        // Recoloca o WebView.
+        if (web.getParent() == null) {
+            root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+        }
+        web.setVisibility(View.VISIBLE);
+        openSector(selected);
+    }
+
+    private void openSector(int idx) {
+        if (idx < 0 || idx >= keys.length) {
+            showSectorGate();
+            return;
+        }
+
+        selected = idx;
+        getPreferences(0).edit().putInt("sector", idx).apply();
+        current.setText("SETOR: " + names[idx]);
+
+        web.setVisibility(View.VISIBLE);
+        web.loadUrl(SITE + "?setor=" + keys[idx]);
     }
 
     private void injectSector() {
-        String key=keys[selected].replace("'","\\'");
-        String name=names[selected].replace("'","\\'");
-        String js="(function(){try{localStorage.setItem('sanches_setor','"+key+"');localStorage.setItem('sanches_setor_nome','"+name+"');window.SANCHES_SETOR='"+key+"';window.SANCHES_SETOR_NOME='"+name+"';window.dispatchEvent(new CustomEvent('sanches:setor',{detail:{key:'"+key+"',nome:'"+name+"'}}));}catch(e){}})();";
-        web.evaluateJavascript(js,null);
+        if (selected < 0 || selected >= keys.length) return;
+
+        String key = keys[selected].replace("'", "\\'");
+        String name = names[selected].replace("'", "\\'");
+
+        String js =
+            "(function(){try{" +
+            "localStorage.setItem('sanches_setor','" + key + "');" +
+            "localStorage.setItem('sanches_setor_nome','" + name + "');" +
+            "window.SANCHES_SETOR='" + key + "';" +
+            "window.SANCHES_SETOR_NOME='" + name + "';" +
+            "window.dispatchEvent(new CustomEvent('sanches:setor',{detail:{key:'" +
+            key + "',nome:'" + name + "'}}));" +
+            "}catch(e){}})();";
+
+        web.evaluateJavascript(js, null);
     }
 
     @Override public void onBackPressed() {
-        if(web.canGoBack()) web.goBack(); else super.onBackPressed();
+        if (web.getVisibility() == View.VISIBLE && web.canGoBack()) {
+            web.goBack();
+        } else if (web.getVisibility() == View.VISIBLE) {
+            showSectorGate();
+        } else {
+            super.onBackPressed();
+        }
     }
 }
