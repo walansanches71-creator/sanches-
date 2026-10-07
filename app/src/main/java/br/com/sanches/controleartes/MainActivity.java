@@ -136,8 +136,11 @@ public class MainActivity extends Activity {
     void form(final Art old, final String presetCompany, final String presetPhone){
         final Dialog d=new Dialog(this);LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(18));l.setBackground(bg(SURFACE,22));
         TextView title=text(old==null?"Novo pedido":"Editar pedido",22,WHITE);title.setTypeface(null,1);l.addView(title);l.addView(text("O preço de cobrança vem da tabela de serviços. Aqui você controla o custo.",12,MUTED));
-        EditText company=input("Cliente / empresa");EditText phone=input("WhatsApp do cliente (opcional)");EditText desc=input("Descrição da demanda");
-        l.addView(company,lp(12));l.addView(phone,lp(8));
+        TextView clientLabel=text("CLIENTE",10,MUTED);clientLabel.setTypeface(null,1);l.addView(clientLabel,lp(10));
+        Spinner clientSpinner=new Spinner(this);ArrayList<Company> clients=new ArrayList<>();Cursor cc=db.companies();try{while(cc.moveToNext()){Company x=new Company();x.id=cc.getLong(0);x.name=cc.getString(1);x.phone=cc.getString(2);clients.add(x);}}finally{cc.close();}
+        ArrayList<String> clientNames=new ArrayList<>();for(Company x:clients)clientNames.add(x.name);if(clientNames.isEmpty())clientNames.add("Nenhum cliente cadastrado");
+        ArrayAdapter<String> ca=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,clientNames);clientSpinner.setAdapter(ca);l.addView(clientSpinner,lp(4));
+        EditText company=input("Cliente / empresa");company.setVisibility(View.GONE);EditText phone=input("WhatsApp do cliente");phone.setVisibility(View.GONE);EditText desc=input("Descrição da demanda");l.addView(company);l.addView(phone);l.addView(desc,lp(8));
 
         Spinner serviceSpinner=new Spinner(this);ArrayList<Service> services=new ArrayList<>();services.add(blankService());Cursor sc=db.services();try{while(sc.moveToNext()){Service s=new Service();s.id=sc.getLong(0);s.name=sc.getString(1);s.cost=sc.getDouble(2);s.price=sc.getDouble(3);services.add(s);}}finally{sc.close();}
         ArrayList<String> names=new ArrayList<>();for(Service s:services)names.add(s.name);ArrayAdapter<String> sa=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names);serviceSpinner.setAdapter(sa);
@@ -151,8 +154,10 @@ public class MainActivity extends Activity {
         if(old!=null){
             company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(money(old.cost));if(!old.photo.isEmpty())photoInfo.setText("✓ Foto já vinculada");
             for(int i=0;i<services.size();i++)if(services.get(i).name.equals(old.service)){serviceSpinner.setSelection(i);selectedPrice[0]=old.price;}
+            for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(old.company))clientSpinner.setSelection(i);
         }
-        serviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+        clientSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){if(!clients.isEmpty()&&pos<clients.size()){Company x=clients.get(pos);company.setText(x.name);phone.setText(x.phone);}}});
+                serviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             public void onNothingSelected(android.widget.AdapterView<?> p){}
             public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;cost.setText(money(s.cost));}}
         });
@@ -166,7 +171,7 @@ public class MainActivity extends Activity {
             else db.updateArt(old.id,clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),old.status,photoValue);
             refresh();syncDataFolder();d.dismiss();
         });
-        if(presetCompany!=null&&old==null){company.setText(presetCompany);phone.setText(presetPhone==null?"":presetPhone);}
+        if(presetCompany!=null&&old==null){company.setText(presetCompany);phone.setText(presetPhone==null?"":presetPhone);for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(presetCompany))clientSpinner.setSelection(i);}
         d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),-2);}
     }
     Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";return s;}
