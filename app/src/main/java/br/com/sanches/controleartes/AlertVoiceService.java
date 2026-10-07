@@ -7,6 +7,11 @@ import android.speech.tts.*;
 import java.util.*;
 
 public class AlertVoiceService extends Service {
+    static void start(Context context,String message){
+        Intent i=new Intent(context,AlertVoiceService.class); i.putExtra("message",message);
+        try{ if(Build.VERSION.SDK_INT>=26)context.startForegroundService(i); else context.startService(i); }
+        catch(Exception ignored){ }
+    }
     static final String ACTION_STOP="br.com.sanches.controleartes.STOP_VOICE";
     static final String CHANNEL="voz_atraso_v1";
     TextToSpeech tts;
