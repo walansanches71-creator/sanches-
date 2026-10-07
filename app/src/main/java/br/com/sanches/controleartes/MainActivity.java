@@ -15,6 +15,9 @@ import android.os.Environment;
 import android.net.Uri;
 import android.database.Cursor;
 import android.text.InputType;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.speech.tts.TextToSpeech;
 import android.view.*;
 import android.widget.*;
 import java.util.*;
@@ -31,7 +34,7 @@ public class MainActivity extends Activity {
     int GREEN=Color.rgb(37,211,102); final int WHITE=Color.rgb(245,247,250), MUTED=Color.rgb(151,163,176);
     final int RED=Color.rgb(255,88,88), YELLOW=Color.rgb(255,190,70), BLUE=Color.rgb(90,170,255);
 
-    static class Art { long id; String company,phone,service,desc,status,photo; double price,cost; }
+    static class Art { long id; String company,phone,service,desc,status,photo; double price,cost; long receivedAt,dueAt,alertedAt; }
     static class Company { long id; String name,phone; }
     static class Service { long id; String name; double cost,price; }
 
@@ -89,6 +92,7 @@ public class MainActivity extends Activity {
     }
 
     void refresh(){
+        checkDeadlines();
         list.removeAllViews();double rec=0,pag=0,atr=0,cst=0;
         Cursor c=db.arts();
         try{
@@ -107,7 +111,7 @@ public class MainActivity extends Activity {
     Art art(Cursor c){
         Art a=new Art();a.id=c.getLong(c.getColumnIndexOrThrow("id"));a.company=c.getString(c.getColumnIndexOrThrow("company"));a.phone=c.getString(c.getColumnIndexOrThrow("phone"));
         a.service=c.getString(c.getColumnIndexOrThrow("service"));a.desc=c.getString(c.getColumnIndexOrThrow("description"));a.price=c.getDouble(c.getColumnIndexOrThrow("price"));
-        a.cost=c.getDouble(c.getColumnIndexOrThrow("cost"));a.status=c.getString(c.getColumnIndexOrThrow("status"));a.photo=c.getString(c.getColumnIndexOrThrow("photo"));return a;
+        a.cost=c.getDouble(c.getColumnIndexOrThrow("cost"));a.status=c.getString(c.getColumnIndexOrThrow("status"));a.photo=c.getString(c.getColumnIndexOrThrow("photo"));a.receivedAt=c.getLong(c.getColumnIndexOrThrow("received_at"));a.dueAt=c.getLong(c.getColumnIndexOrThrow("due_at"));a.alertedAt=c.getLong(c.getColumnIndexOrThrow("alerted_at"));return a;
     }
 
     void card(final Art a){
@@ -125,6 +129,7 @@ public class MainActivity extends Activity {
         LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.setPadding(dp(12),0,0,0);
         TextView cli=text(a.company.isEmpty()?"Sem cliente":a.company,17,WHITE);cli.setTypeface(null,1);
         info.addView(cli);info.addView(text((a.service.isEmpty()?"Arte":a.service)+" • "+(a.desc.isEmpty()?"":a.desc),12,MUTED));
+        if(a.dueAt>0){String ds="Entrega: "+dateTime(a.dueAt);int dc=a.dueAt<System.currentTimeMillis()&&!isDelivered(a.status)&&!"Pago".equals(a.status)?RED:BLUE;TextView dt=text(ds,11,dc);dt.setTypeface(null,1);info.addView(dt);}
         TextView val=text("A receber: R$ "+money(a.price)+"   •   custo: R$ "+money(a.cost),15,GREEN);val.setTypeface(null,1);info.addView(val);
         head.addView(info,new LinearLayout.LayoutParams(0,-2,1));c.addView(head);
         TextView chip=text("●  "+a.status,11,statusColor(a.status));chip.setTypeface(null,1);chip.setPadding(dp(10),dp(6),dp(10),dp(6));chip.setBackground(bg(statusColor(a.status),18));chip.setTextColor(BG);
@@ -137,7 +142,7 @@ public class MainActivity extends Activity {
 
     int statusColor(String s){if("Pago".equals(s))return GREEN;if(s.contains("atras"))return RED;if("Arte entregue".equals(s))return BLUE;return YELLOW;}
     void status(final Art a){
-        String[] arr={"A receber","Arte entregue","Pago","Arte atrasada","Pagamento atrasado"};
+        String[] arr={"Nova demanda","Em produção","Pronta","Arte entregue","A receber","Pagamento atrasado","Pago","Arte atrasada"};
         new AlertDialog.Builder(this).setTitle("Alterar status").setItems(arr,(d,w)->{db.updateStatus(a.id,arr[w]);refresh();syncDataFolder();}).show();
     }
     void deleteArt(final Art a){
@@ -160,13 +165,20 @@ public class MainActivity extends Activity {
         TextView valueLabel=text("VALOR DA ARTE: R$ "+money(selectedPrice[0]),15,GREEN);valueLabel.setTypeface(null,1);l.addView(valueLabel,lp(6));
         EditText cost=input("Custo interno da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
         l.addView(cost,lp(8));
+        final long[] receivedAt={old!=null&&old.receivedAt>0?old.receivedAt:System.currentTimeMillis()};
+        final long[] dueAt={old!=null?old.dueAt:0};
+        Button receivedBtn=action("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));
+        Button dueBtn=action("📅  ENTREGA COMBINADA: "+(dueAt[0]>0?dateTime(dueAt[0]):"Definir prazo"));
+        l.addView(receivedBtn,lp(8));l.addView(dueBtn,lp(6));
+        receivedBtn.setOnClickListener(v->pickDateTime(receivedAt,"Data em que peguei a demanda",receivedBtn));
+        dueBtn.setOnClickListener(v->pickDateTime(dueAt,"Entrega combinada",dueBtn));
 
         Button photo=action("📷  ADICIONAR / TROCAR FOTOS");TextView photoInfo=text("Nenhuma foto selecionada",11,MUTED);photoInfo.setPadding(dp(4),dp(5),0,0);l.addView(photo,lp(10));l.addView(photoInfo);
         Button save=action("✓  SALVAR ARTE");save.setTextColor(BG);save.setTypeface(null,1);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
 
         if(old!=null){
             valueLabel.setText("VALOR DA ARTE: R$ "+money(old.price));
-            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(old.cost>0?money(old.cost):"");if(!old.photo.isEmpty())photoInfo.setText(photoUris(old.photo).size()+" foto(s) vinculada(s)");
+            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(old.cost>0?money(old.cost):"");receivedBtn.setText("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));dueBtn.setText("📅  ENTREGA COMBINADA: "+(dueAt[0]>0?dateTime(dueAt[0]):"Definir prazo"));if(!old.photo.isEmpty())photoInfo.setText(photoUris(old.photo).size()+" foto(s) vinculada(s)");
             for(int i=0;i<services.size();i++)if(services.get(i).name.equals(old.service)){serviceSpinner.setSelection(i);selectedPrice[0]=old.price;}
             for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(old.company))clientSpinner.setSelection(i);
         }
@@ -181,18 +193,42 @@ public class MainActivity extends Activity {
             String ph=phone.getText().toString().trim();String sv=serviceSpinner.getSelectedItem().toString();String ct=cost.getText().toString().trim();
             String photoValue=old==null?"":old.photo;if(!pendingImages.isEmpty()){JSONArray pa=new JSONArray();for(Uri u:pendingImages)pa.put(u.toString());photoValue=pa.toString();pendingImages.clear();pendingImage=null;}
             long clientId=db.addCompany(co,ph);
-            if(old==null)db.addArt(clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),"A receber",photoValue);
-            else db.updateArt(old.id,clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),old.status,photoValue);
-            refresh();syncDataFolder();d.dismiss();
+            if(old==null)db.addArt(clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),"A receber",photoValue,receivedAt[0],dueAt[0]);
+            else db.updateArt(old.id,clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),old.status,photoValue,receivedAt[0],dueAt[0]);
+            refresh();syncDataFolder();if(dueAt[0]>System.currentTimeMillis())scheduleDeadline(old==null?db.lastArtId():old.id,dueAt[0]);d.dismiss();
         });
         if(presetCompany!=null&&old==null){company.setText(presetCompany);phone.setText(presetPhone==null?"":presetPhone);for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(presetCompany))clientSpinner.setSelection(i);}
         d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),-2);}
     }
+    String dateTime(long ms){if(ms<=0)return "";return new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault()).format(new Date(ms));}
+    boolean isDelivered(String s){return "Arte entregue".equals(s)||"Entregue".equals(s)||"Pronta".equals(s);}
+    void pickDateTime(final long[] target,String title,final Button button){
+        Calendar base=Calendar.getInstance();if(target[0]>0)base.setTimeInMillis(target[0]);
+        DatePickerDialog dpd=new DatePickerDialog(this,(v,y,m,d)->{
+            Calendar cal=Calendar.getInstance();cal.set(y,m,d,base.get(Calendar.HOUR_OF_DAY),base.get(Calendar.MINUTE),0);cal.set(Calendar.MILLISECOND,0);
+            TimePickerDialog tpd=new TimePickerDialog(this,(tv,h,min)->{cal.set(Calendar.HOUR_OF_DAY,h);cal.set(Calendar.MINUTE,min);target[0]=cal.getTimeInMillis();button.setText((button==null?"":(button.getText().toString().startsWith("📥")?"📥  DEMANDA RECEBIDA: ":"📅  ENTREGA COMBINADA: "))+dateTime(target[0]));},base.get(Calendar.HOUR_OF_DAY),base.get(Calendar.MINUTE),true);
+            tpd.setTitle(title+" • horário");tpd.show();
+        },base.get(Calendar.YEAR),base.get(Calendar.MONTH),base.get(Calendar.DAY_OF_MONTH));dpd.setTitle(title);dpd.show();
+    }
+    void checkDeadlines(){
+        long now=System.currentTimeMillis();Cursor cur=db.arts();try{while(cur.moveToNext()){Art a=art(cur);if(a.dueAt>0&&a.dueAt<now&&!isDelivered(a.status)&&!"Pago".equals(a.status)&&!"Pagamento atrasado".equals(a.status)){db.updateStatus(a.id,"Arte atrasada");if(a.alertedAt==0){showOverdueAlert(a);db.markAlerted(a.id,now);}}}}finally{cur.close();}
+    }
+    void showOverdueAlert(Art a){
+        try{android.media.Ringtone r=android.media.RingtoneManager.getRingtone(this,android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM));if(r!=null)r.play();}catch(Exception ignored){}
+        try{TextToSpeech t=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){t.setLanguage(new Locale("pt","BR"));t.speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"atraso");}},null);}catch(Exception ignored){}
+        new AlertDialog.Builder(this).setTitle("🚨 DEMANDA ATRASADA").setMessage(a.company+" • "+(a.service.isEmpty()?"Arte":a.service)+"\nPrazo: "+dateTime(a.dueAt)).setPositiveButton("OK",null).show();
+    }
+    void scheduleDeadline(long id,long when){
+        if(when<=System.currentTimeMillis())return;
+        AlarmManager am=(AlarmManager)getSystemService(ALARM_SERVICE);Intent i=new Intent(this,DeadlineReceiver.class);i.putExtra("art_id",id);
+        PendingIntent pi=PendingIntent.getBroadcast(this,(int)(id%1000000),i,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        if(Build.VERSION.SDK_INT>=23)am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,when,pi);else am.set(AlarmManager.RTC_WAKEUP,when,pi);
+    }
     Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";return s;}
 
     void menu(){
-        final String[] a={"👥  Clientes","💰  Tabela de preços","💳  Configurar PIX","📊  Resumo financeiro","🎨  Personalizar cor","📄  Gerar PDF","💾  Backup / Restaurar"};
-        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)companiesDialog();if(w==1)servicesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)themeDialog();if(w==5)generatePdf(null);if(w==6)backupMenu();}).show();
+        final String[] a={"👥  Clientes","💰  Tabela de preços","💳  Configurar PIX","📊  Resumo financeiro","📅  Agenda de prazos","🎨  Personalizar cor","📄  Gerar PDF","💾  Backup / Restaurar"};
+        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)companiesDialog();if(w==1)servicesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)agendaDialog();if(w==5)themeDialog();if(w==6)generatePdf(null);if(w==7)backupMenu();}).show();
     }
 
     void servicesDialog(){
@@ -291,6 +327,16 @@ public class MainActivity extends Activity {
         s.setOnClickListener(v->{db.setting("pix",key.getText().toString().trim());db.setting("pix_name",name.getText().toString().trim());syncDataFolder();d.dismiss();});
     }
 
+    void agendaDialog(){
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(14),dp(18),dp(10));
+        TextView h=text("📅 Próximas entregas",19,WHITE);h.setTypeface(null,1);l.addView(h);
+        LinearLayout ls=new LinearLayout(this);ls.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(ls);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+        Cursor c=db.arts();ArrayList<Art> items=new ArrayList<>();try{while(c.moveToNext()){Art a=art(c);if(a.dueAt>0&&!"Pago".equals(a.status)&&!"Arte entregue".equals(a.status))items.add(a);}}finally{c.close();}
+        Collections.sort(items,(x,y)->Long.compare(x.dueAt,y.dueAt));
+        if(items.isEmpty())ls.addView(text("Nenhum prazo cadastrado.",14,MUTED));
+        for(Art a:items){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.setPadding(dp(12),dp(10),dp(12),dp(10));row.setBackground(bg(SURFACE2,14));String prefix=a.dueAt<System.currentTimeMillis()?"🚨 ATRASADA":"⏰ "+dateTime(a.dueAt);TextView t=text(prefix,13,a.dueAt<System.currentTimeMillis()?RED:YELLOW);t.setTypeface(null,1);row.addView(t);row.addView(text(a.company+" • "+(a.service.isEmpty()?"Arte":a.service),14,WHITE));row.addView(text("Valor: R$ "+money(a.price)+" • "+a.status,11,MUTED));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(82));rp.setMargins(0,0,0,dp(8));ls.addView(row,rp);}
+        Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(560));
+    }
     void summaryDialog(){
         double revenue=0,c=0,paid=0,receivable=0;Cursor cur=db.arts();try{while(cur.moveToNext()){double p=cur.getDouble(cur.getColumnIndexOrThrow("price")),co=cur.getDouble(cur.getColumnIndexOrThrow("cost"));revenue+=p;c+=co;if("Pago".equals(cur.getString(cur.getColumnIndexOrThrow("status"))))paid+=p;else receivable+=p;}}finally{cur.close();}
         new AlertDialog.Builder(this).setTitle("Resumo financeiro").setMessage("Faturamento: R$ "+money(revenue)+"\nCustos: R$ "+money(c)+"\nLucro estimado: R$ "+money(revenue-c)+"\n\nRecebido: R$ "+money(paid)+"\nA receber: R$ "+money(receivable)+"\n\nPIX cadastrado: "+(db.setting("pix").isEmpty()?"não":"sim")).setPositiveButton("OK",null).show();
