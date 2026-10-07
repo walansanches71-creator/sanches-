@@ -20,7 +20,8 @@ public class LocalDB extends SQLiteOpenHelper {
     public void onUpgrade(SQLiteDatabase db,int oldV,int newV){
         if(oldV<2) db.execSQL("CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,description TEXT,amount REAL DEFAULT 0,created_at INTEGER)");
         if(oldV<3) db.execSQL("ALTER TABLE arts ADD COLUMN client_id INTEGER DEFAULT 0");
-        if(oldV<4){ db.execSQL("ALTER TABLE arts ADD COLUMN received_at INTEGER DEFAULT 0"); db.execSQL("ALTER TABLE arts ADD COLUMN due_at INTEGER DEFAULT 0"); db.execSQL("ALTER TABLE arts ADD COLUMN alerted_at INTEGER DEFAULT 0"); }\n        if(oldV<5) db.execSQL("ALTER TABLE services ADD COLUMN description TEXT DEFAULT ''");
+        if(oldV<4){ db.execSQL("ALTER TABLE arts ADD COLUMN received_at INTEGER DEFAULT 0"); db.execSQL("ALTER TABLE arts ADD COLUMN due_at INTEGER DEFAULT 0"); db.execSQL("ALTER TABLE arts ADD COLUMN alerted_at INTEGER DEFAULT 0"); }
+        if(oldV<5) db.execSQL("ALTER TABLE services ADD COLUMN description TEXT DEFAULT ''");
     }
     Cursor arts(){return getReadableDatabase().rawQuery("SELECT * FROM arts ORDER BY id DESC",null);}
     Cursor clientArts(String company){return getReadableDatabase().rawQuery("SELECT * FROM arts WHERE company=? ORDER BY id DESC",new String[]{company});}
