@@ -4,6 +4,7 @@ import android.content.*;
 import android.database.Cursor;
 import android.database.sqlite.*;
 import org.json.*;
+import java.util.Iterator;
 
 public class LocalDB extends SQLiteOpenHelper {
     static final String NAME="controle_artes.db"; static final int VERSION=2;
