@@ -213,7 +213,10 @@ public class MainActivity extends Activity {
             tpd.setTitle(title+" • horário");tpd.show();
         },base.get(Calendar.YEAR),base.get(Calendar.MONTH),base.get(Calendar.DAY_OF_MONTH));dpd.setTitle(title);dpd.show();
     }
-    void requestNotificationPermission(){\n        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},909);\n    }\n    void checkDeadlines(){
+    void requestNotificationPermission(){
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},909);
+    }
+    void checkDeadlines(){
         long now=System.currentTimeMillis();Cursor cur=db.arts();try{while(cur.moveToNext()){Art a=art(cur);if(a.dueAt>0&&a.dueAt<now&&!isDelivered(a.status)&&!"Pago".equals(a.status)&&!"Pagamento atrasado".equals(a.status)){db.updateStatus(a.id,"Arte atrasada");if(a.alertedAt==0){showOverdueAlert(a);OverdueNotifier.show(this,a.id,a.company,a.service,a.desc,a.photo);db.markAlerted(a.id,now);}}}}finally{cur.close();}
     }
     void showOverdueAlert(Art a){
