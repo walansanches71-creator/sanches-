@@ -225,9 +225,40 @@ public class MainActivity extends Activity {
     }
     void scheduleDeadline(long id,long when){
         if(when<=System.currentTimeMillis())return;
-        AlarmManager am=(AlarmManager)getSystemService(ALARM_SERVICE);Intent i=new Intent(this,DeadlineReceiver.class);i.putExtra("art_id",id);
+        AlarmManager am=(AlarmManager)getSystemService(ALARM_SERVICE);
+        Intent i=new Intent(this,DeadlineReceiver.class);i.putExtra("art_id",id);
         PendingIntent pi=PendingIntent.getBroadcast(this,(int)(id%1000000),i,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        if(Build.VERSION.SDK_INT>=23)am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,when,pi);else am.set(AlarmManager.RTC_WAKEUP,when,pi);
+        try{
+            if(Build.VERSION.SDK_INT>=31){
+                if(!am.canScheduleExactAlarms())return;
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,when,pi);
+            }else if(Build.VERSION.SDK_INT>=23) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,when,pi);
+            else am.setExact(AlarmManager.RTC_WAKEUP,when,pi);
+        }catch(Exception ignored){}
+    }
+    void scheduleAllDeadlines(){
+        Cursor c=db.arts();
+        try{
+            while(c.moveToNext()){
+                Art a=art(c);
+                if(a.dueAt>System.currentTimeMillis()&&!isDelivered(a.status)&&!"Pago".equals(a.status))scheduleDeadline(a.id,a.dueAt);
+            }
+        }finally{c.close();}
+    }
+    @Override protected void onResume(){
+        super.onResume();
+        if(db!=null){
+            if(Build.VERSION.SDK_INT>=31){
+                AlarmManager am=(AlarmManager)getSystemService(ALARM_SERVICE);
+                if(!am.canScheduleExactAlarms()){
+                    try{
+                        Intent s=new Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                        s.setData(Uri.parse("package:"+getPackageName()));
+                        startActivity(s);
+                    }catch(Exception ignored){}
+                }else scheduleAllDeadlines();
+            }else scheduleAllDeadlines();
+        }
     }
     Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";s.desc="";return s;}
 
