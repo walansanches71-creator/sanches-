@@ -23,8 +23,9 @@ public class MainActivity extends Activity {
     TextView total,receber,pago,atrasado,custos,lucro,empty;
     LocalDB db;
     Uri pendingImage;
+    ArrayList<Uri> pendingImages=new ArrayList<>();
     final int BG=Color.rgb(8,12,17), SURFACE=Color.rgb(17,23,31), SURFACE2=Color.rgb(22,29,38);
-    final int GREEN=Color.rgb(37,211,102), WHITE=Color.rgb(245,247,250), MUTED=Color.rgb(151,163,176);
+    int GREEN=Color.rgb(37,211,102); final int WHITE=Color.rgb(245,247,250), MUTED=Color.rgb(151,163,176);
     final int RED=Color.rgb(255,88,88), YELLOW=Color.rgb(255,190,70), BLUE=Color.rgb(90,170,255);
 
     static class Art { long id; String company,phone,service,desc,status,photo; double price,cost; }
@@ -35,6 +36,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
         db=new LocalDB(this);
+        loadThemeColor();
         migrateLegacy();
         syncDataFolder();
         build();
@@ -148,7 +150,7 @@ public class MainActivity extends Activity {
         final double[] selectedPrice={old==null?0:old.price};EditText cost=input("Custo da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
         l.addView(cost,lp(8));
 
-        Button photo=action("📷  ADICIONAR / TROCAR FOTO");TextView photoInfo=text("Nenhuma foto selecionada",11,MUTED);photoInfo.setPadding(dp(4),dp(5),0,0);l.addView(photo,lp(10));l.addView(photoInfo);
+        Button photo=action("📷  ADICIONAR / TROCAR FOTOS");TextView photoInfo=text("Nenhuma foto selecionada",11,MUTED);photoInfo.setPadding(dp(4),dp(5),0,0);l.addView(photo,lp(10));l.addView(photoInfo);
         Button save=action("✓  SALVAR ARTE");save.setTextColor(BG);save.setTypeface(null,1);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
 
         if(old!=null){
@@ -161,11 +163,11 @@ public class MainActivity extends Activity {
             public void onNothingSelected(android.widget.AdapterView<?> p){}
             public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;cost.setText(money(s.cost));}}
         });
-        photo.setOnClickListener(q->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,101);});
+        photo.setOnClickListener(q->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,101);});
         save.setOnClickListener(q->{
             String co=company.getText().toString().trim();if(co.isEmpty()){company.setError("Informe o cliente");return;}
             String ph=phone.getText().toString().trim();String sv=serviceSpinner.getSelectedItem().toString();String ct=cost.getText().toString().trim();
-            String photoValue=old==null?"":old.photo;if(pendingImage!=null){photoValue=pendingImage.toString();pendingImage=null;}
+            String photoValue=old==null?"":old.photo;if(!pendingImages.isEmpty()){JSONArray pa=new JSONArray();for(Uri u:pendingImages)pa.put(u.toString());photoValue=pa.toString();pendingImages.clear();pendingImage=null;}
             long clientId=db.addCompany(co,ph);
             if(old==null)db.addArt(clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),"A receber",photoValue);
             else db.updateArt(old.id,clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),old.status,photoValue);
@@ -177,8 +179,8 @@ public class MainActivity extends Activity {
     Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";return s;}
 
     void menu(){
-        final String[] a={"👥  Clientes","💰  Tabela de preços e custos","💳  Configurar PIX","📊  Resumo financeiro","💸  Despesas gerais","📄  Gerar PDF","💾  Backup / Restaurar"};
-        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)companiesDialog();if(w==1)servicesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)expensesDialog();if(w==5)generatePdf(null);if(w==6)backupMenu();}).show();
+        final String[] a={"👥  Clientes","💰  Tabela de preços","💳  Configurar PIX","📊  Resumo financeiro","🎨  Personalizar cor","📄  Gerar PDF","💾  Backup / Restaurar"};
+        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)companiesDialog();if(w==1)servicesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)themeDialog();if(w==5)generatePdf(null);if(w==6)backupMenu();}).show();
     }
 
     void servicesDialog(){
@@ -192,10 +194,10 @@ public class MainActivity extends Activity {
 
     void serviceForm(Runnable reload){
         LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(15));
-        EditText n=input("Nome do serviço");EditText co=input("Custo (R$)");EditText pr=input("Preço de venda (R$)");co.setInputType(2|8192);pr.setInputType(2|8192);
-        l.addView(n);l.addView(co,lp(8));l.addView(pr,lp(8));Button save=action("SALVAR TABELA");save.setTextColor(BG);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
+        EditText n=input("Nome do serviço (ex.: Criação de arte)");EditText pr=input("Valor (R$)");pr.setInputType(2|8192);
+        l.addView(n);l.addView(pr,lp(8));Button save=action("SALVAR TABELA");save.setTextColor(BG);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
         Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
-        save.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addService(n.getText().toString(),num(co.getText().toString()),num(pr.getText().toString()));d.dismiss();reload.run();syncDataFolder();});
+        save.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addService(n.getText().toString(),0,num(pr.getText().toString()));d.dismiss();reload.run();syncDataFolder();});
     }
 
     void companiesDialog(){
@@ -291,6 +293,24 @@ public class MainActivity extends Activity {
         if(!photo.isEmpty()){Uri u=Uri.parse(photo);i.setType("image/*");i.putExtra(Intent.EXTRA_STREAM,u);i.putExtra(Intent.EXTRA_TEXT,msg);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);i.setClipData(ClipData.newRawUri("foto",u));}
         else{i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg);}
         try{startActivity(Intent.createChooser(i,"Enviar cobrança"));}catch(Exception ignored){}
+    }
+
+    ArrayList<Uri> photoUris(String value){
+        ArrayList<Uri> out=new ArrayList<>();if(value==null||value.isEmpty())return out;
+        try{if(value.trim().startsWith("[")){JSONArray a=new JSONArray(value);for(int i=0;i<a.length();i++)out.add(Uri.parse(a.getString(i)));}else out.add(Uri.parse(value));}catch(Exception ignored){}return out;
+    }
+    Uri firstPhoto(String value){ArrayList<Uri> p=photoUris(value);return p.isEmpty()?null:p.get(0);}
+    void loadThemeColor(){try{String h=db.setting("theme_color");if(!h.isEmpty())GREEN=Color.parseColor(h);}catch(Exception ignored){}}
+    void themeDialog(){
+        String[] names={"Verde","Azul","Roxo","Laranja","Vermelho","Ciano","Personalizada"};
+        String[] colors={"#25D366","#4F8CFF","#9B59FF","#FF9F43","#FF5C5C","#20C7C9",""};
+        new AlertDialog.Builder(this).setTitle("🎨 Cor do aplicativo").setItems(names,(d,w)->{
+            if(w<6){db.setting("theme_color",colors[w]);GREEN=Color.parseColor(colors[w]);build();}
+            else{
+                EditText e=input("HEX (ex.: #FF4D8D)");e.setText("#25D366");
+                new AlertDialog.Builder(this).setTitle("Cor personalizada").setView(e).setNegativeButton("CANCELAR",null).setPositiveButton("SALVAR",(x,z)->{try{String h=e.getText().toString().trim();GREEN=Color.parseColor(h);db.setting("theme_color",h);build();}catch(Exception ignored){Toast.makeText(this,"Cor inválida.",Toast.LENGTH_SHORT).show();}}).show();
+            }
+        }).show();
     }
 
     File dataFolder(){
