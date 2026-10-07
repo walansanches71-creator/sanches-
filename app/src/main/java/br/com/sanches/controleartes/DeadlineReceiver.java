@@ -21,10 +21,11 @@ public class DeadlineReceiver extends BroadcastReceiver {
             if(r!=null)r.play();
         }catch(Exception ignored){}
         try{
-            TextToSpeech tts=new TextToSpeech(context,status->{
+            final TextToSpeech[] holder=new TextToSpeech[1];
+            holder[0]=new TextToSpeech(context,status->{
                 if(status==TextToSpeech.SUCCESS){
-                    tts.setLanguage(new Locale("pt","BR"));
-                    tts.speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"demanda_atrasada");
+                    holder[0].setLanguage(new Locale("pt","BR"));
+                    holder[0].speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"demanda_atrasada");
                 }
             });
         }catch(Exception ignored){}
