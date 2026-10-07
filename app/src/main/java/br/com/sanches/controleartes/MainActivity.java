@@ -171,17 +171,23 @@ public class MainActivity extends Activity {
         final long[] receivedAt={old!=null&&old.receivedAt>0?old.receivedAt:System.currentTimeMillis()};
         final long[] dueAt={old!=null?old.dueAt:0};
         Button receivedBtn=action("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));
-        Button dueBtn=action("📅  ENTREGA COMBINADA: "+(dueAt[0]>0?dateTime(dueAt[0]):"Definir prazo"));
-        l.addView(receivedBtn,lp(8));l.addView(dueBtn,lp(6));
+        Button dueDateBtn=action("📅  DATA DE ENTREGA: "+(dueAt[0]>0?dateOnly(dueAt[0]):"Definir data"));
+        Button dueTimeBtn=action("🕐  HORA DE ENTREGA: "+(dueAt[0]>0?timeOnly(dueAt[0]):"Digite a hora"));
+        l.addView(receivedBtn,lp(8));
+        l.addView(dueDateBtn,lp(6));
+        l.addView(dueTimeBtn,lp(6));
         receivedBtn.setOnClickListener(v->pickDateTime(receivedAt,"Data em que peguei a demanda",receivedBtn));
-        dueBtn.setOnClickListener(v->pickDateTime(dueAt,"Entrega combinada",dueBtn));
+        dueDateBtn.setOnClickListener(v->pickDeliveryDate(dueAt,dueDateBtn,dueTimeBtn));
+        dueTimeBtn.setOnClickListener(v->editDeliveryTime(dueAt,dueDateBtn,dueTimeBtn));
 
         Button photo=action("📷  ADICIONAR / TROCAR FOTOS");TextView photoInfo=text("Nenhuma foto selecionada",11,MUTED);photoInfo.setPadding(dp(4),dp(5),0,0);l.addView(photo,lp(10));l.addView(photoInfo);
         Button save=action("✓  SALVAR ARTE");save.setTextColor(BG);save.setTypeface(null,1);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
 
         if(old!=null){
             valueLabel.setText("VALOR DA ARTE: R$ "+money(old.price));
-            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(old.cost>0?money(old.cost):"");receivedBtn.setText("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));dueBtn.setText("📅  ENTREGA COMBINADA: "+(dueAt[0]>0?dateTime(dueAt[0]):"Definir prazo"));if(!old.photo.isEmpty())photoInfo.setText(photoUris(old.photo).size()+" foto(s) vinculada(s)");
+            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(old.cost>0?money(old.cost):"");receivedBtn.setText("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));
+            dueDateBtn.setText("📅  DATA DE ENTREGA: "+(dueAt[0]>0?dateOnly(dueAt[0]):"Definir data"));
+            dueTimeBtn.setText("🕐  HORA DE ENTREGA: "+(dueAt[0]>0?timeOnly(dueAt[0]):"Digite a hora"));if(!old.photo.isEmpty())photoInfo.setText(photoUris(old.photo).size()+" foto(s) vinculada(s)");
             for(int i=0;i<services.size();i++)if(services.get(i).name.equals(old.service)){serviceSpinner.setSelection(i);selectedPrice[0]=old.price;}
             for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(old.company))clientSpinner.setSelection(i);
         }
@@ -204,15 +210,62 @@ public class MainActivity extends Activity {
         d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),-2);}
     }
     String dateTime(long ms){if(ms<=0)return "";return new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault()).format(new Date(ms));}
+    String dateOnly(long ms){if(ms<=0)return "";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new Date(ms));}
+    String timeOnly(long ms){if(ms<=0)return "";return new java.text.SimpleDateFormat("HH:mm",Locale.getDefault()).format(new Date(ms));}
     boolean isDelivered(String s){return "Arte entregue".equals(s)||"Entregue".equals(s)||"Pronta".equals(s);}
+    void pickDeliveryDate(final long[] target,final Button dateBtn,final Button timeBtn){
+        Calendar base=Calendar.getInstance();
+        if(target[0]>0)base.setTimeInMillis(target[0]);
+        DatePickerDialog dpd=new DatePickerDialog(this,(v,y,m,day)->{
+            Calendar cal=Calendar.getInstance();
+            cal.set(y,m,day,target[0]>0?base.get(Calendar.HOUR_OF_DAY):12,target[0]>0?base.get(Calendar.MINUTE):0,0);
+            cal.set(Calendar.MILLISECOND,0);
+            target[0]=cal.getTimeInMillis();
+            dateBtn.setText("📅  DATA DE ENTREGA: "+dateOnly(target[0]));
+            timeBtn.setText("🕐  HORA DE ENTREGA: "+timeOnly(target[0]));
+        },base.get(Calendar.YEAR),base.get(Calendar.MONTH),base.get(Calendar.DAY_OF_MONTH));
+        dpd.setTitle("Escolha a data de entrega");
+        dpd.show();
+    }
+
+    void editDeliveryTime(final long[] target,final Button dateBtn,final Button timeBtn){
+        final EditText e=input("Ex.: 14:30");
+        e.setInputType(InputType.TYPE_CLASS_DATETIME|InputType.TYPE_DATETIME_VARIATION_TIME);
+        e.setText(target[0]>0?timeOnly(target[0]):"");
+        e.setSelectAllOnFocus(true);
+        new AlertDialog.Builder(this).setTitle("🕐 Hora de entrega")
+            .setMessage("Digite a hora no formato HH:mm")
+            .setView(e)
+            .setNegativeButton("CANCELAR",null)
+            .setPositiveButton("SALVAR",(d,w)->{
+                String value=e.getText().toString().trim().replace("h",":").replace("H",":");
+                try{
+                    String[] parts=value.split(":");
+                    if(parts.length!=2)throw new Exception();
+                    int h=Integer.parseInt(parts[0].trim()),m=Integer.parseInt(parts[1].trim());
+                    if(h<0||h>23||m<0||m>59)throw new Exception();
+                    Calendar cal=Calendar.getInstance();
+                    if(target[0]>0)cal.setTimeInMillis(target[0]);
+                    cal.set(Calendar.HOUR_OF_DAY,h);cal.set(Calendar.MINUTE,m);cal.set(Calendar.SECOND,0);cal.set(Calendar.MILLISECOND,0);
+                    target[0]=cal.getTimeInMillis();
+                    dateBtn.setText("📅  DATA DE ENTREGA: "+dateOnly(target[0]));
+                    timeBtn.setText("🕐  HORA DE ENTREGA: "+timeOnly(target[0]));
+                }catch(Exception ex){
+                    Toast.makeText(this,"Hora inválida. Digite, por exemplo, 14:30.",Toast.LENGTH_LONG).show();
+                }
+            }).show();
+    }
+
     void pickDateTime(final long[] target,String title,final Button button){
         Calendar base=Calendar.getInstance();if(target[0]>0)base.setTimeInMillis(target[0]);
-        DatePickerDialog dpd=new DatePickerDialog(this,(v,y,m,d)->{
-            Calendar cal=Calendar.getInstance();cal.set(y,m,d,base.get(Calendar.HOUR_OF_DAY),base.get(Calendar.MINUTE),0);cal.set(Calendar.MILLISECOND,0);
-            TimePickerDialog tpd=new TimePickerDialog(this,(tv,h,min)->{cal.set(Calendar.HOUR_OF_DAY,h);cal.set(Calendar.MINUTE,min);target[0]=cal.getTimeInMillis();button.setText((button==null?"":(button.getText().toString().startsWith("📥")?"📥  DEMANDA RECEBIDA: ":"📅  ENTREGA COMBINADA: "))+dateTime(target[0]));},base.get(Calendar.HOUR_OF_DAY),base.get(Calendar.MINUTE),true);
-            tpd.setTitle(title+" • horário");tpd.show();
-        },base.get(Calendar.YEAR),base.get(Calendar.MONTH),base.get(Calendar.DAY_OF_MONTH));dpd.setTitle(title);dpd.show();
+        DatePickerDialog dpd=new DatePickerDialog(this,(v,y,m,day)->{
+            Calendar cal=Calendar.getInstance();cal.set(y,m,day,base.get(Calendar.HOUR_OF_DAY),base.get(Calendar.MINUTE),0);cal.set(Calendar.MILLISECOND,0);
+            TimePickerDialog tpd=new TimePickerDialog(this,(tv,h,min)->{cal.set(Calendar.HOUR_OF_DAY,h);cal.set(Calendar.MINUTE,min);target[0]=cal.getTimeInMillis();button.setText("📥  DEMANDA RECEBIDA: "+dateTime(target[0]));},base.get(Calendar.HOUR_OF_DAY),base.get(Calendar.MINUTE),true);
+            tpd.setTitle("Hora da demanda recebida");tpd.show();
+        },base.get(Calendar.YEAR),base.get(Calendar.MONTH),base.get(Calendar.DAY_OF_MONTH));
+        dpd.setTitle(title);dpd.show();
     }
+
     void requestNotificationPermission(){
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},909);
     }
