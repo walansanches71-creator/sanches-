@@ -11,6 +11,7 @@ import android.text.InputType;
 import android.view.*;
 import android.widget.*;
 import java.util.*;
+import java.io.*;
 import org.json.*;
 
 public class MainActivity extends Activity {
@@ -165,8 +166,8 @@ public class MainActivity extends Activity {
     Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";return s;}
 
     void menu(){
-        final String[] a={"💰  Tabela de preços e custos","🏢  Empresas salvas","💳  Configurar PIX","📊  Resumo financeiro"};
-        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)servicesDialog();if(w==1)companiesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();}).show();
+        final String[] a={"💰  Tabela de preços e custos","🏢  Empresas salvas","💳  Configurar PIX","📊  Resumo financeiro","💸  Despesas gerais","💾  Backup / Restaurar"};
+        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)servicesDialog();if(w==1)companiesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)expensesDialog();if(w==5)backupMenu();}).show();
     }
 
     void servicesDialog(){
@@ -190,8 +191,56 @@ public class MainActivity extends Activity {
         LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(14),dp(18),dp(10));Button add=action("＋ NOVA EMPRESA");l.addView(add);
         LinearLayout ls=new LinearLayout(this);ls.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(ls);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         Dialog d=new Dialog(this);d.setTitle("Empresas salvas");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
-        final Runnable[] reload=new Runnable[1];reload[0]=()->{ls.removeAllViews();Cursor c=db.companies();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1),ph=c.getString(2);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text(ph.isEmpty()?"Sem WhatsApp cadastrado":ph,11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteCompany(id);reload[0].run();});ls.addView(row);}}finally{c.close();}};
+        final Runnable[] reload=new Runnable[1];reload[0]=()->{ls.removeAllViews();Cursor c=db.companies();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1),ph=c.getString(2);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text(ph.isEmpty()?"Sem WhatsApp cadastrado":ph,11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button charge=action("💬 COBRAR TUDO");Button del=action("🗑");row.addView(charge,new LinearLayout.LayoutParams(dp(112),dp(42)));row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));charge.setOnClickListener(v->chargeCompany(n,ph));del.setOnClickListener(v->{db.deleteCompany(id);reload[0].run();});ls.addView(row);}}finally{c.close();}};
         add.setOnClickListener(v->companyForm(reload[0]));reload[0].run();
+    }
+
+    void chargeCompany(String company,String phone){
+        ArrayList<Art> open=new ArrayList<>();double total=0,cost=0;Cursor cur=db.arts();
+        try{while(cur.moveToNext()){Art a=art(cur);if(company.equalsIgnoreCase(a.company)&&!"Pago".equals(a.status)){open.add(a);total+=a.price;cost+=a.cost;}}}finally{cur.close();}
+        if(open.isEmpty()){new AlertDialog.Builder(this).setTitle("Nenhuma cobrança").setMessage("Não há artes em aberto para "+company+".").setPositiveButton("OK",null).show();return;}
+        StringBuilder msg=new StringBuilder("Olá, "+company+"! 👋\\n\\nSegue o fechamento das artes: \\n");
+        for(int i=0;i<open.size();i++){Art a=open.get(i);msg.append(i+1).append(". ").append(a.service.isEmpty()?(a.desc.isEmpty()?"Arte":a.desc):a.service).append(" — R$ ").append(money(a.price)).append("\\n");}
+        msg.append("\\nTOTAL: R$ ").append(money(total));
+        String pix=db.setting("pix");if(!pix.isEmpty()){msg.append("\\n\\n💳 PIX: ").append(pix);if(!db.setting("pix_name").isEmpty())msg.append("\\nRecebedor: ").append(db.setting("pix_name"));}
+        msg.append("\\n\\nQuando puder, me envie o pagamento. Obrigado!");
+        new AlertDialog.Builder(this).setTitle("Cobrança conjunta")
+          .setMessage(open.size()+" artes em uma única cobrança\\nTotal: R$ "+money(total)+"\\n\\nAs cobranças individuais continuam disponíveis no botão COBRAR de cada arte.")
+          .setNegativeButton("CANCELAR",null).setPositiveButton("ENVIAR NO WHATSAPP",(d,w)->{
+              Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg.toString());
+              try{startActivity(Intent.createChooser(i,"Cobrar "+company));}catch(Exception ignored){}
+          }).show();
+    }
+
+    void expensesDialog(){
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(14),dp(18),dp(10));
+        Button add=action("＋ NOVA DESPESA");l.addView(add);
+        LinearLayout ls=new LinearLayout(this);ls.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(ls);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+        Dialog d=new Dialog(this);d.setTitle("Despesas gerais");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
+        final Runnable[] reload=new Runnable[1];reload[0]=()->{ls.removeAllViews();double total=0;Cursor c=db.expenses();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double v=c.getDouble(2);total+=v;LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("R$ "+money(v),12,RED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(x->{db.deleteExpense(id);reload[0].run();refresh();});ls.addView(row);}}finally{c.close();}TextView t=text("TOTAL DE DESPESAS: R$ "+money(total),15,WHITE);t.setTypeface(null,1);ls.addView(t,0);};
+        add.setOnClickListener(v->expenseForm(reload[0]));reload[0].run();
+    }
+    void expenseForm(Runnable reload){
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(15));
+        EditText n=input("Descrição (ex.: tinta, transporte, energia)");EditText v=input("Valor (R$)");v.setInputType(2|8192);l.addView(n);l.addView(v,lp(8));
+        Button s=action("SALVAR DESPESA");s.setTextColor(BG);s.setBackground(bg(GREEN,14));l.addView(s,lp(12));Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
+        s.setOnClickListener(x->{if(n.getText().toString().trim().isEmpty())return;db.addExpense(n.getText().toString(),num(v.getText().toString()));d.dismiss();reload.run();refresh();});
+    }
+
+    void backupMenu(){
+        new AlertDialog.Builder(this).setTitle("Backup local").setItems(new String[]{"💾 Fazer backup agora","♻ Restaurar backup"},(d,w)->{if(w==0)createBackup();else restoreBackup();}).show();
+    }
+    void createBackup(){
+        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.setType("application/json");i.putExtra(Intent.EXTRA_TITLE,"controle-artes-backup.json");startActivityForResult(i,202);
+    }
+    void restoreBackup(){
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("application/json");i.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,203);
+    }
+    void writeBackup(Uri u){
+        try{OutputStream out=getContentResolver().openOutputStream(u);out.write(db.exportJson().toString(2).getBytes("UTF-8"));out.close();Toast.makeText(this,"Backup salvo com sucesso!",Toast.LENGTH_LONG).show();}catch(Exception e){Toast.makeText(this,"Não foi possível salvar o backup.",Toast.LENGTH_LONG).show();}
+    }
+    void readBackup(Uri u){
+        try{InputStream in=getContentResolver().openInputStream(u);ByteArrayOutputStream b=new ByteArrayOutputStream();byte[] buf=new byte[4096];int n;while((n=in.read(buf))>0)b.write(buf,0,n);in.close();JSONObject j=new JSONObject(new String(b.toByteArray(),"UTF-8"));if(db.importJson(j)){Toast.makeText(this,"Backup restaurado!",Toast.LENGTH_LONG).show();refresh();}else Toast.makeText(this,"Backup inválido.",Toast.LENGTH_LONG).show();}catch(Exception e){Toast.makeText(this,"Erro ao restaurar backup.",Toast.LENGTH_LONG).show();}
     }
 
     void companyForm(Runnable reload){
@@ -222,6 +271,11 @@ public class MainActivity extends Activity {
         if(!photo.isEmpty()){Uri u=Uri.parse(photo);i.setType("image/*");i.putExtra(Intent.EXTRA_STREAM,u);i.putExtra(Intent.EXTRA_TEXT,msg);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);i.setClipData(ClipData.newRawUri("foto",u));}
         else{i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg);}
         try{startActivity(Intent.createChooser(i,"Enviar cobrança"));}catch(Exception ignored){}
+    }
+
+    @Override protected void onActivityResult(int r,int c,Intent data){
+        super.onActivityResult(r,c,data);
+        if(c==RESULT_OK&&data!=null){if(r==101){pendingImage=data.getData();try{getContentResolver().takePersistableUriPermission(pendingImage,data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}else if(r==202)writeBackup(data.getData());else if(r==203)new AlertDialog.Builder(this).setTitle("Restaurar backup?").setMessage("Isso substituirá os dados atuais do aplicativo.").setNegativeButton("CANCELAR",null).setPositiveButton("RESTAURAR",(d,w)->readBackup(data.getData())).show();}
     }
 
     void migrateLegacy(){
