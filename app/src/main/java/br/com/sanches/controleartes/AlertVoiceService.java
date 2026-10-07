@@ -8,7 +8,12 @@ import java.util.*;
 
 public class AlertVoiceService extends Service {
     static void start(Context context,String message){
-        Intent i=new Intent(context,AlertVoiceService.class); i.putExtra("message",message);
+        android.content.SharedPreferences p=context.getSharedPreferences("voz_alerta",0);
+        Intent i=new Intent(context,AlertVoiceService.class);
+        i.putExtra("message",message);
+        i.putExtra("repeat",p.getInt("repeat",3));
+        i.putExtra("volume",p.getFloat("volume",1f));
+        i.putExtra("voice_name",p.getString("voice_name",""));
         try{ if(Build.VERSION.SDK_INT>=26)context.startForegroundService(i); else context.startService(i); }
         catch(Exception ignored){ }
     }
@@ -45,13 +50,13 @@ public class AlertVoiceService extends Service {
                     }
                     Bundle params=new Bundle();
                     if(Build.VERSION.SDK_INT>=21)params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME,finalVolume);
-                    tts.speak(finalMsg,TextToSpeech.QUEUE_FLUSH,params,"atraso_voz");
-                    for(int i=1;i<finalRepeat;i++)tts.speak(finalMsg,TextToSpeech.QUEUE_ADD,params,"atraso_voz_"+i);
                     tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
                         @Override public void onStart(String utteranceId){}
                         @Override public void onDone(String utteranceId){ if(utteranceId.equals("atraso_voz_"+(finalRepeat-1)) || finalRepeat==1) stopSelf(); }
                         @Override public void onError(String utteranceId){stopSelf();}
                     });
+                    tts.speak(finalMsg,TextToSpeech.QUEUE_FLUSH,params,"atraso_voz");
+                    for(int i=1;i<finalRepeat;i++)tts.speak(finalMsg,TextToSpeech.QUEUE_ADD,params,"atraso_voz_"+i);
                     new Handler(Looper.getMainLooper()).postDelayed(()->{if(tts!=null && !tts.isSpeaking())stopSelf();},45000);
                 }catch(Exception e){stopSelf();}
             });
