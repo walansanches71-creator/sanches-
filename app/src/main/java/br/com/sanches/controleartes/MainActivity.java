@@ -303,35 +303,41 @@ public class MainActivity extends Activity {
                 "Valor: R$ "+money(a.price);
         if(!pix.isEmpty()){msg+="\n\n💳 PIX: "+pix;if(!pixName.isEmpty())msg+="\nRecebedor: "+pixName;}
         msg+="\n\nQuando puder, me envie o pagamento. Obrigado!";
+
         ArrayList<Uri> photos=photoUris(a.photo);
         try{
-            Intent i=new Intent(Intent.ACTION_SEND);
-            if(photos.size()>1){
-                Uri collage=createPhotoCollage(photos);
-                if(collage!=null){i.setType("image/*");i.putExtra(Intent.EXTRA_STREAM,collage);i.putExtra(Intent.EXTRA_TEXT,msg);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);i.setClipData(ClipData.newRawUri("arte",collage));}
-                else{i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg);}
+            Intent i;
+            if(photos.size() > 1){
+                i=new Intent(Intent.ACTION_SEND_MULTIPLE);
+                i.setType("image/*");
+                i.putParcelableArrayListExtra(Intent.EXTRA_STREAM,photos);
+                i.putExtra(Intent.EXTRA_TEXT,msg);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                ClipData clip=ClipData.newRawUri("arte-1",photos.get(0));
+                for(int n=1;n<photos.size();n++) clip.addItem(new ClipData.Item(photos.get(n)));
+                i.setClipData(clip);
             }else if(photos.size()==1){
-                i.setType("image/*");i.putExtra(Intent.EXTRA_STREAM,photos.get(0));i.putExtra(Intent.EXTRA_TEXT,msg);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);i.setClipData(ClipData.newRawUri("arte",photos.get(0)));
-            }else{i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg);}
-            i.setPackage("com.whatsapp");
-            try{startActivity(i);}catch(Exception noWhats){i.setPackage(null);startActivity(Intent.createChooser(i,"Enviar cobrança"));}
-        }catch(Exception e){Toast.makeText(this,"Não foi possível abrir o WhatsApp.",Toast.LENGTH_LONG).show();}
-    }
-
-    Uri createPhotoCollage(ArrayList<Uri> photos){
-        try{
-            int count=Math.min(photos.size(),6),w=1200,h=((count+1)/2)*850;
-            Bitmap out=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(out);canvas.drawColor(Color.WHITE);
-            Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-            for(int idx=0;idx<count;idx++){
-                Bitmap b=BitmapFactory.decodeStream(getContentResolver().openInputStream(photos.get(idx)));if(b==null)continue;
-                int col=idx%2,row=idx/2;RectF dst=new RectF(col*600+10,row*850+10,col*600+590,row*850+840);
-                float scale=Math.max(dst.width()/b.getWidth(),dst.height()/b.getHeight());float bw=b.getWidth()*scale,bh=b.getHeight()*scale;
-                RectF srcDst=new RectF(dst.centerX()-bw/2,dst.centerY()-bh/2,dst.centerX()+bw/2,dst.centerY()+bh/2);canvas.drawBitmap(b,null,srcDst,p);b.recycle();
+                i=new Intent(Intent.ACTION_SEND);
+                i.setType("image/*");
+                i.putExtra(Intent.EXTRA_STREAM,photos.get(0));
+                i.putExtra(Intent.EXTRA_TEXT,msg);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                i.setClipData(ClipData.newRawUri("arte",photos.get(0)));
+            }else{
+                i=new Intent(Intent.ACTION_SEND);
+                i.setType("text/plain");
+                i.putExtra(Intent.EXTRA_TEXT,msg);
             }
-            File f=new File(getCacheDir(),"cobranca_"+System.currentTimeMillis()+".jpg");FileOutputStream outS=new FileOutputStream(f);out.compress(Bitmap.CompressFormat.JPEG,90,outS);outS.close();
-            return androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);
-        }catch(Exception e){return null;}
+            i.setPackage("com.whatsapp");
+            try{
+                startActivity(i);
+            }catch(Exception noWhats){
+                i.setPackage(null);
+                startActivity(Intent.createChooser(i,"Enviar cobrança"));
+            }
+        }catch(Exception ex){
+            Toast.makeText(this,"Não foi possível preparar a cobrança.",Toast.LENGTH_LONG).show();
+        }
     }
 
     ArrayList<Uri> photoUris(String value){
