@@ -42,7 +42,7 @@ public class LocalDB extends SQLiteOpenHelper {
             JSONObject settings=new JSONObject();settings.put("pix",setting("pix"));settings.put("pix_name",setting("pix_name"));root.put("settings",settings);
         }catch(Exception ignored){}return root;
     }
-    JSONArray rows(Cursor c){JSONArray a=new JSONArray();try{while(c.moveToNext()){JSONObject o=new JSONObject();for(int i=0;i<c.getColumnCount();i++)o.put(c.getColumnName(i),c.getString(i));a.put(o);}}finally{c.close();}return a;}
+    JSONArray rows(Cursor c){JSONArray a=new JSONArray();try{while(c.moveToNext()){JSONObject o=new JSONObject();for(int i=0;i<c.getColumnCount();i++)o.put(c.getColumnName(i),c.getString(i));a.put(o);}}catch(Exception ignored){}finally{c.close();}return a;}
     boolean importJson(JSONObject root){SQLiteDatabase db=getWritableDatabase();db.beginTransaction();try{
         db.delete("arts",null,null);db.delete("companies",null,null);db.delete("services",null,null);db.delete("expenses",null,null);db.delete("settings",null,null);
         importRows(db,"companies",root.optJSONArray("companies"));importRows(db,"services",root.optJSONArray("services"));importRows(db,"arts",root.optJSONArray("arts"));importRows(db,"expenses",root.optJSONArray("expenses"));
