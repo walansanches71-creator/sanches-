@@ -5,6 +5,10 @@ import android.os.*;
 import android.content.*;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.pdf.PdfDocument;
+import android.graphics.Paint;
+import android.graphics.Canvas;
+import android.os.Environment;
 import android.net.Uri;
 import android.database.Cursor;
 import android.text.InputType;
@@ -64,7 +68,7 @@ public class MainActivity extends Activity {
         dash.addView(r1,new LinearLayout.LayoutParams(-1,dp(76)));dash.addView(r2,new LinearLayout.LayoutParams(-1,dp(76)));dash.addView(r3,new LinearLayout.LayoutParams(-1,dp(76)));
         root.addView(dash);
 
-        Button add=action("＋  NOVA ARTE");add.setTextSize(15);add.setTypeface(null,1);add.setTextColor(BG);add.setBackground(bg(GREEN,16));add.setOnClickListener(v->form(null));
+        Button add=action("＋  NOVA ARTE");add.setTextSize(15);add.setTypeface(null,1);add.setTextColor(BG);add.setBackground(bg(GREEN,16));add.setOnClickListener(v->form(null,null,null));
         root.addView(add,new LinearLayout.LayoutParams(-1,dp(52)));
         TextView section=text("MINHAS ARTES",13,MUTED);section.setTypeface(null,1);section.setPadding(dp(3),dp(16),0,dp(8));root.addView(section,new LinearLayout.LayoutParams(-1,dp(42)));
 
@@ -128,46 +132,47 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Apagar demanda?").setMessage("Esta arte será removida do banco local. Não dá para desfazer.").setNegativeButton("CANCELAR",null).setPositiveButton("APAGAR",(d,w)->{db.deleteArt(a.id);refresh();}).show();
     }
 
-    void form(final Art old){
+    void form(final Art old, final String presetCompany, final String presetPhone){
         final Dialog d=new Dialog(this);LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(18));l.setBackground(bg(SURFACE,22));
-        TextView title=text(old==null?"Nova arte":"Editar arte",22,WHITE);title.setTypeface(null,1);l.addView(title);l.addView(text("Preço, custo, empresa e foto ficam salvos no banco local.",12,MUTED));
-        EditText company=input("Empresa / cliente");EditText phone=input("WhatsApp da empresa (opcional)");EditText desc=input("Descrição da arte");
+        TextView title=text(old==null?"Novo pedido":"Editar pedido",22,WHITE);title.setTypeface(null,1);l.addView(title);l.addView(text("O preço de cobrança vem da tabela de serviços. Aqui você controla o custo.",12,MUTED));
+        EditText company=input("Cliente / empresa");EditText phone=input("WhatsApp do cliente (opcional)");EditText desc=input("Descrição da demanda");
         l.addView(company,lp(12));l.addView(phone,lp(8));
 
         Spinner serviceSpinner=new Spinner(this);ArrayList<Service> services=new ArrayList<>();services.add(blankService());Cursor sc=db.services();try{while(sc.moveToNext()){Service s=new Service();s.id=sc.getLong(0);s.name=sc.getString(1);s.cost=sc.getDouble(2);s.price=sc.getDouble(3);services.add(s);}}finally{sc.close();}
         ArrayList<String> names=new ArrayList<>();for(Service s:services)names.add(s.name);ArrayAdapter<String> sa=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names);serviceSpinner.setAdapter(sa);
         l.addView(serviceSpinner,lp(8));
-        EditText price=input("Preço de venda (R$)");price.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);EditText cost=input("Custo da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        l.addView(price,lp(8));l.addView(cost,lp(8));l.addView(desc,lp(8));
+        final double[] selectedPrice={old==null?0:old.price};EditText cost=input("Custo da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        l.addView(cost,lp(8));l.addView(desc,lp(8));
 
         Button photo=action("📷  ADICIONAR / TROCAR FOTO");TextView photoInfo=text("Nenhuma foto selecionada",11,MUTED);photoInfo.setPadding(dp(4),dp(5),0,0);l.addView(photo,lp(10));l.addView(photoInfo);
         Button save=action("✓  SALVAR ARTE");save.setTextColor(BG);save.setTypeface(null,1);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
 
         if(old!=null){
-            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);price.setText(money(old.price));cost.setText(money(old.cost));if(!old.photo.isEmpty())photoInfo.setText("✓ Foto já vinculada");
-            for(int i=0;i<services.size();i++)if(services.get(i).name.equals(old.service))serviceSpinner.setSelection(i);
+            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(money(old.cost));if(!old.photo.isEmpty())photoInfo.setText("✓ Foto já vinculada");
+            for(int i=0;i<services.size();i++)if(services.get(i).name.equals(old.service)){serviceSpinner.setSelection(i);selectedPrice[0]=old.price;}
         }
         serviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             public void onNothingSelected(android.widget.AdapterView<?> p){}
-            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){price.setText(money(s.price));cost.setText(money(s.cost));}}
+            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;cost.setText(money(s.cost));}}
         });
         photo.setOnClickListener(q->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,101);});
         save.setOnClickListener(q->{
-            String co=company.getText().toString().trim();if(co.isEmpty()){company.setError("Informe a empresa");return;}
-            String ph=phone.getText().toString().trim();String sv=serviceSpinner.getSelectedItem().toString();String pr=price.getText().toString().trim();String ct=cost.getText().toString().trim();
+            String co=company.getText().toString().trim();if(co.isEmpty()){company.setError("Informe o cliente");return;}
+            String ph=phone.getText().toString().trim();String sv=serviceSpinner.getSelectedItem().toString();String ct=cost.getText().toString().trim();
             String photoValue=old==null?"":old.photo;if(pendingImage!=null){photoValue=pendingImage.toString();pendingImage=null;}
-            db.addCompany(co,ph);
-            if(old==null)db.addArt(co,ph,sv,desc.getText().toString().trim(),num(pr),num(ct),"A receber",photoValue);
-            else db.updateArt(old.id,co,ph,sv,desc.getText().toString().trim(),num(pr),num(ct),old.status,photoValue);
-            refresh();d.dismiss();
+            long clientId=db.addCompany(co,ph);
+            if(old==null)db.addArt(clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),"A receber",photoValue);
+            else db.updateArt(old.id,clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),old.status,photoValue);
+            refresh();syncDataFolder();d.dismiss();
         });
+        if(presetCompany!=null&&old==null){company.setText(presetCompany);phone.setText(presetPhone==null?"":presetPhone);}
         d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),-2);}
     }
     Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";return s;}
 
     void menu(){
-        final String[] a={"💰  Tabela de preços e custos","🏢  Empresas salvas","💳  Configurar PIX","📊  Resumo financeiro","💸  Despesas gerais","💾  Backup / Restaurar"};
-        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)servicesDialog();if(w==1)companiesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)expensesDialog();if(w==5)backupMenu();}).show();
+        final String[] a={"👥  Clientes","💰  Tabela de preços e custos","💳  Configurar PIX","📊  Resumo financeiro","💸  Despesas gerais","📄  Gerar PDF","💾  Backup / Restaurar"};
+        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)companiesDialog();if(w==1)servicesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)expensesDialog();if(w==5)generatePdf(null);if(w==6)backupMenu();}).show();
     }
 
     void servicesDialog(){
@@ -188,10 +193,10 @@ public class MainActivity extends Activity {
     }
 
     void companiesDialog(){
-        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(14),dp(18),dp(10));Button add=action("＋ NOVA EMPRESA");l.addView(add);
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(14),dp(18),dp(10));Button add=action("＋ NOVO CLIENTE");l.addView(add);
         LinearLayout ls=new LinearLayout(this);ls.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(ls);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
-        Dialog d=new Dialog(this);d.setTitle("Empresas salvas");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
-        final Runnable[] reload=new Runnable[1];reload[0]=()->{ls.removeAllViews();Cursor c=db.companies();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1),ph=c.getString(2);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text(ph.isEmpty()?"Sem WhatsApp cadastrado":ph,11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button charge=action("💬 COBRAR TUDO");Button del=action("🗑");row.addView(charge,new LinearLayout.LayoutParams(dp(112),dp(42)));row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));charge.setOnClickListener(v->chargeCompany(n,ph));del.setOnClickListener(v->{db.deleteCompany(id);reload[0].run();});ls.addView(row);}}finally{c.close();}};
+        Dialog d=new Dialog(this);d.setTitle("Clientes");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
+        final Runnable[] reload=new Runnable[1];reload[0]=()->{ls.removeAllViews();Cursor c=db.companies();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1),ph=c.getString(2);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text(ph.isEmpty()?"Sem WhatsApp cadastrado":ph,11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button order=action("＋ PEDIDO");Button demands=action("ARTES");Button pdf=action("PDF");Button del=action("🗑");row.addView(order,new LinearLayout.LayoutParams(dp(78),dp(42)));row.addView(demands,new LinearLayout.LayoutParams(dp(68),dp(42)));row.addView(pdf,new LinearLayout.LayoutParams(dp(52),dp(42)));row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));order.setOnClickListener(v->form(null,n,ph));demands.setOnClickListener(v->clientDemands(n,ph));pdf.setOnClickListener(v->generatePdf(n));del.setOnClickListener(v->{db.deleteCompany(id);reload[0].run();refresh();syncDataFolder();});ls.addView(row);}}finally{c.close();}};
         add.setOnClickListener(v->companyForm(reload[0]));reload[0].run();
     }
 
@@ -243,10 +248,19 @@ public class MainActivity extends Activity {
         try{InputStream in=getContentResolver().openInputStream(u);ByteArrayOutputStream b=new ByteArrayOutputStream();byte[] buf=new byte[4096];int n;while((n=in.read(buf))>0)b.write(buf,0,n);in.close();JSONObject j=new JSONObject(new String(b.toByteArray(),"UTF-8"));if(db.importJson(j)){Toast.makeText(this,"Backup restaurado!",Toast.LENGTH_LONG).show();refresh();}else Toast.makeText(this,"Backup inválido.",Toast.LENGTH_LONG).show();}catch(Exception e){Toast.makeText(this,"Erro ao restaurar backup.",Toast.LENGTH_LONG).show();}
     }
 
+    void clientDemands(String company,String phone){
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(14),dp(18),dp(10));
+        LinearLayout buttons=new LinearLayout(this);Button order=action("＋ NOVO PEDIDO");Button pdf=action("📄 PDF");Button charge=action("💬 COBRAR TUDO");buttons.addView(order,new LinearLayout.LayoutParams(0,dp(44),1));buttons.addView(pdf,new LinearLayout.LayoutParams(0,dp(44),1));buttons.addView(charge,new LinearLayout.LayoutParams(0,dp(44),1));l.addView(buttons);
+        LinearLayout ls=new LinearLayout(this);ls.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(ls);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+        Dialog d=new Dialog(this);d.setTitle("Demandas • "+company);d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(560));
+        order.setOnClickListener(v->form(null,company,phone));pdf.setOnClickListener(v->generatePdf(company));charge.setOnClickListener(v->chargeCompany(company,phone));
+        Cursor c=db.clientArts(company);try{while(c.moveToNext()){Art a=art(c);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(8),0,dp(8));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(a.desc.isEmpty()?"Arte":a.desc,15,WHITE));tx.addView(text(a.service+" • R$ "+money(a.price)+" • "+a.status,12,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteArt(a.id);d.dismiss();refresh();syncDataFolder();clientDemands(company,phone);});ls.addView(row);}}finally{c.close();}
+    }
+
     void companyForm(Runnable reload){
         LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(15));EditText n=input("Nome da empresa");EditText p=input("WhatsApp (opcional)");l.addView(n);l.addView(p,lp(8));
         Button s=action("SALVAR EMPRESA");s.setTextColor(BG);s.setBackground(bg(GREEN,14));l.addView(s,lp(12));Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
-        s.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addCompany(n.getText().toString(),p.getText().toString());d.dismiss();reload.run();});
+        s.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addCompany(n.getText().toString(),p.getText().toString());d.dismiss();reload.run();syncDataFolder();});
     }
 
     void pixDialog(){
