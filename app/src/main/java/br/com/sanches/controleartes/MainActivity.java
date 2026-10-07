@@ -46,6 +46,8 @@ public class MainActivity extends Activity {
         migrateLegacy();
         syncDataFolder();
         build();
+        OverdueNotifier.ensureChannel(this);
+        requestNotificationPermission();
     }
 
     int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
@@ -159,8 +161,9 @@ public class MainActivity extends Activity {
         EditText company=input("Cliente / empresa");company.setVisibility(View.GONE);EditText phone=input("WhatsApp do cliente");phone.setVisibility(View.GONE);EditText desc=input("Descrição da demanda");l.addView(company);l.addView(phone);l.addView(desc,lp(8));
 
         Spinner serviceSpinner=new Spinner(this);ArrayList<Service> services=new ArrayList<>();services.add(blankService());Cursor sc=db.services();try{while(sc.moveToNext()){Service s=new Service();s.id=sc.getLong(0);s.name=sc.getString(1);s.desc=sc.getString(2);s.cost=sc.getDouble(3);s.price=sc.getDouble(4);services.add(s);}}finally{sc.close();}
-        ArrayList<String> names=new ArrayList<>();for(Service s:services)names.add(s.name);ArrayAdapter<String> sa=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names);serviceSpinner.setAdapter(sa);
+        ArrayList<String> names=new ArrayList<>();for(Service s:services)names.add(s.id==0?s.name:s.name+" • R$ "+money(s.price));ArrayAdapter<String> sa=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names);serviceSpinner.setAdapter(sa);
         l.addView(serviceSpinner,lp(8));
+        TextView serviceInfo=text("Selecione um serviço para ver descrição e valor.",11,MUTED);serviceInfo.setPadding(dp(4),dp(4),0,0);l.addView(serviceInfo);
         final double[] selectedPrice={old==null?0:old.price};
         TextView valueLabel=text("VALOR DA ARTE: R$ "+money(selectedPrice[0]),15,GREEN);valueLabel.setTypeface(null,1);l.addView(valueLabel,lp(6));
         EditText cost=input("Custo interno da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
@@ -241,8 +244,8 @@ public class MainActivity extends Activity {
 
     void serviceForm(Runnable reload){
         LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(15));
-        EditText n=input("Nome do serviço (ex.: Criação de arte)");EditText pr=input("Valor (R$)");pr.setInputType(2|8192);
-        l.addView(n);l.addView(pr,lp(8));Button save=action("SALVAR TABELA");save.setTextColor(BG);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
+        EditText n=input("Nome do serviço (ex.: Cópia de arte)");EditText sd=input("Descrição do serviço (ex.: cópia de arte simples)");EditText pr=input("Valor (R$)");pr.setInputType(2|8192);
+        l.addView(n);l.addView(sd,lp(8));l.addView(pr,lp(8));Button save=action("SALVAR TABELA");save.setTextColor(BG);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
         Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
         save.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addService(n.getText().toString(),sd.getText().toString(),0,num(pr.getText().toString()));d.dismiss();reload.run();syncDataFolder();});
     }
