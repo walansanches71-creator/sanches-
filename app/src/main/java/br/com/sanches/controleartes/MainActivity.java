@@ -214,7 +214,6 @@ public class MainActivity extends Activity {
         long now=System.currentTimeMillis();Cursor cur=db.arts();try{while(cur.moveToNext()){Art a=art(cur);if(a.dueAt>0&&a.dueAt<now&&!isDelivered(a.status)&&!"Pago".equals(a.status)&&!"Pagamento atrasado".equals(a.status)){db.updateStatus(a.id,"Arte atrasada");if(a.alertedAt==0){showOverdueAlert(a);db.markAlerted(a.id,now);}}}}finally{cur.close();}
     }
     void showOverdueAlert(Art a){
-        try{android.media.Ringtone r=android.media.RingtoneManager.getRingtone(this,android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM));if(r!=null)r.play();}catch(Exception ignored){}
         try{final TextToSpeech[] holder=new TextToSpeech[1];holder[0]=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){holder[0].setLanguage(new Locale("pt","BR"));holder[0].speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"atraso");}},null);}catch(Exception ignored){}
         new AlertDialog.Builder(this).setTitle("🚨 DEMANDA ATRASADA").setMessage(a.company+" • "+(a.service.isEmpty()?"Arte":a.service)+"\nPrazo: "+dateTime(a.dueAt)).setPositiveButton("OK",null).show();
     }
