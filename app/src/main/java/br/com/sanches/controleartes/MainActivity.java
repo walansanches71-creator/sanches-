@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
         ArrayList<String> names=new ArrayList<>();for(Service s:services)names.add(s.name);ArrayAdapter<String> sa=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names);serviceSpinner.setAdapter(sa);
         l.addView(serviceSpinner,lp(8));
         final double[] selectedPrice={old==null?0:old.price};EditText cost=input("Custo da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        l.addView(cost,lp(8));l.addView(desc,lp(8));
+        l.addView(cost,lp(8));
 
         Button photo=action("📷  ADICIONAR / TROCAR FOTO");TextView photoInfo=text("Nenhuma foto selecionada",11,MUTED);photoInfo.setPadding(dp(4),dp(5),0,0);l.addView(photo,lp(10));l.addView(photoInfo);
         Button save=action("✓  SALVAR ARTE");save.setTextColor(BG);save.setTypeface(null,1);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
