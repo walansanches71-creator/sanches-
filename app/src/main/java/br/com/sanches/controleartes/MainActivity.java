@@ -161,7 +161,7 @@ public class MainActivity extends Activity {
         clientSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){if(!clients.isEmpty()&&pos<clients.size()){Company x=clients.get(pos);company.setText(x.name);phone.setText(x.phone);}}});
                 serviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             public void onNothingSelected(android.widget.AdapterView<?> p){}
-            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;cost.setText(money(s.cost));}}
+            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;}}
         });
         photo.setOnClickListener(q->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,101);});
         save.setOnClickListener(q->{
@@ -188,7 +188,7 @@ public class MainActivity extends Activity {
         Button add=action("＋ NOVO SERVIÇO");l.addView(add);
         LinearLayout listS=new LinearLayout(this);listS.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(listS);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         final Dialog d=new Dialog(this);d.setTitle("Tabela de preços");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
-        final Runnable[] reload=new Runnable[1];reload[0]=()->{listS.removeAllViews();Cursor c=db.services();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double co=c.getDouble(2),pr=c.getDouble(3);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("Custo R$ "+money(co)+"  •  Venda R$ "+money(pr)+"  •  Margem R$ "+money(pr-co),11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteService(id);reload[0].run();syncDataFolder();});listS.addView(row);}}finally{c.close();}};
+        final Runnable[] reload=new Runnable[1];reload[0]=()->{listS.removeAllViews();Cursor c=db.services();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double co=c.getDouble(2),pr=c.getDouble(3);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("Valor cobrado: R$ "+money(pr),11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteService(id);reload[0].run();syncDataFolder();});listS.addView(row);}}finally{c.close();}};
         add.setOnClickListener(v->serviceForm(reload[0]));reload[0].run();
     }
 
