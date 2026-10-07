@@ -1,8 +1,6 @@
 package br.com.sanches.controleartes;
 
 import android.content.*;
-import android.speech.tts.TextToSpeech;
-import java.util.Locale;
 
 public class DeadlineReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
@@ -15,14 +13,6 @@ public class DeadlineReceiver extends BroadcastReceiver {
         db.updateStatus(id,"Arte atrasada");
         db.markAlerted(id,System.currentTimeMillis());
         OverdueNotifier.show(context,id,a.company,a.service,a.description,a.photo);
-        try{
-            final TextToSpeech[] holder=new TextToSpeech[1];
-            holder[0]=new TextToSpeech(context,status->{
-                if(status==TextToSpeech.SUCCESS){
-                    holder[0].setLanguage(new Locale("pt","BR"));
-                    holder[0].speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"demanda_atrasada");
-                }
-            });
-        }catch(Exception ignored){}
+        AlertVoiceService.start(context,"Atenção! A entrega da arte da empresa "+a.company+" está atrasada.");
     }
 }
