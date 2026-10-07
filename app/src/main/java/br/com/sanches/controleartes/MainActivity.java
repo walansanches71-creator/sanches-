@@ -215,7 +215,7 @@ public class MainActivity extends Activity {
     }
     void showOverdueAlert(Art a){
         try{android.media.Ringtone r=android.media.RingtoneManager.getRingtone(this,android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM));if(r!=null)r.play();}catch(Exception ignored){}
-        try{TextToSpeech t=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){t.setLanguage(new Locale("pt","BR"));t.speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"atraso");}},null);}catch(Exception ignored){}
+        try{final TextToSpeech[] holder=new TextToSpeech[1];holder[0]=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){holder[0].setLanguage(new Locale("pt","BR"));holder[0].speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"atraso");}},null);}catch(Exception ignored){}
         new AlertDialog.Builder(this).setTitle("🚨 DEMANDA ATRASADA").setMessage(a.company+" • "+(a.service.isEmpty()?"Arte":a.service)+"\nPrazo: "+dateTime(a.dueAt)).setPositiveButton("OK",null).show();
     }
     void scheduleDeadline(long id,long when){
