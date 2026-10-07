@@ -1,8 +1,6 @@
 package br.com.sanches.controleartes;
 
 import android.content.*;
-import android.media.Ringtone;
-import android.media.RingtoneManager;
 import android.speech.tts.TextToSpeech;
 import java.util.Locale;
 
@@ -16,10 +14,6 @@ public class DeadlineReceiver extends BroadcastReceiver {
         if(a.alertedAt>0)return;
         db.updateStatus(id,"Arte atrasada");
         db.markAlerted(id,System.currentTimeMillis());
-        try{
-            Ringtone r=RingtoneManager.getRingtone(context,RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM));
-            if(r!=null)r.play();
-        }catch(Exception ignored){}
         try{
             final TextToSpeech[] holder=new TextToSpeech[1];
             holder[0]=new TextToSpeech(context,status->{
