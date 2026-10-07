@@ -212,7 +212,7 @@ public class MainActivity extends Activity {
             refresh();syncDataFolder();if(dueAt[0]>System.currentTimeMillis())scheduleDeadline(old==null?db.lastArtId():old.id,dueAt[0]);d.dismiss();
         });
         if(presetCompany!=null&&old==null){company.setText(presetCompany);phone.setText(presetPhone==null?"":presetPhone);for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(presetCompany))clientSpinner.setSelection(i);}
-        d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),-2);}
+        ScrollView formScroll=new ScrollView(this);formScroll.setFillViewport(true);formScroll.setClipToPadding(false);formScroll.setPadding(0,0,0,dp(6));formScroll.addView(l,new ScrollView.LayoutParams(-1,-2));d.setContentView(formScroll);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),(int)(getResources().getDisplayMetrics().heightPixels*.88));}
     }
     String dateTime(long ms){if(ms<=0)return "";return new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault()).format(new Date(ms));}
     String dateOnly(long ms){if(ms<=0)return "";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new Date(ms));}
