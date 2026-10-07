@@ -36,7 +36,7 @@ public class MainActivity extends Activity {
 
     static class Art { long id; String company,phone,service,desc,status,photo; double price,cost; long receivedAt,dueAt,alertedAt; }
     static class Company { long id; String name,phone; }
-    static class Service { long id; String name; double cost,price; }
+    static class Service { long id; String name,desc; double cost,price; }
 
     @Override public void onCreate(Bundle b){
         super.onCreate(b);
@@ -158,7 +158,7 @@ public class MainActivity extends Activity {
         ArrayAdapter<String> ca=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,clientNames);clientSpinner.setAdapter(ca);l.addView(clientSpinner,lp(4));
         EditText company=input("Cliente / empresa");company.setVisibility(View.GONE);EditText phone=input("WhatsApp do cliente");phone.setVisibility(View.GONE);EditText desc=input("Descrição da demanda");l.addView(company);l.addView(phone);l.addView(desc,lp(8));
 
-        Spinner serviceSpinner=new Spinner(this);ArrayList<Service> services=new ArrayList<>();services.add(blankService());Cursor sc=db.services();try{while(sc.moveToNext()){Service s=new Service();s.id=sc.getLong(0);s.name=sc.getString(1);s.cost=sc.getDouble(2);s.price=sc.getDouble(3);services.add(s);}}finally{sc.close();}
+        Spinner serviceSpinner=new Spinner(this);ArrayList<Service> services=new ArrayList<>();services.add(blankService());Cursor sc=db.services();try{while(sc.moveToNext()){Service s=new Service();s.id=sc.getLong(0);s.name=sc.getString(1);s.desc=sc.getString(2);s.cost=sc.getDouble(3);s.price=sc.getDouble(4);services.add(s);}}finally{sc.close();}
         ArrayList<String> names=new ArrayList<>();for(Service s:services)names.add(s.name);ArrayAdapter<String> sa=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names);serviceSpinner.setAdapter(sa);
         l.addView(serviceSpinner,lp(8));
         final double[] selectedPrice={old==null?0:old.price};
@@ -185,7 +185,7 @@ public class MainActivity extends Activity {
         clientSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){if(!clients.isEmpty()&&pos<clients.size()){Company x=clients.get(pos);company.setText(x.name);phone.setText(x.phone);}}});
                 serviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             public void onNothingSelected(android.widget.AdapterView<?> p){}
-            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;valueLabel.setText("VALOR DA ARTE: R$ "+money(selectedPrice[0]));}}
+            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;valueLabel.setText("VALOR DA ARTE: R$ "+money(selectedPrice[0]));serviceInfo.setText((s.desc==null||s.desc.isEmpty()?s.name:s.desc)+" • R$ "+money(s.price));}}
         });
         photo.setOnClickListener(q->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,101);});
         save.setOnClickListener(q->{
@@ -210,8 +210,8 @@ public class MainActivity extends Activity {
             tpd.setTitle(title+" • horário");tpd.show();
         },base.get(Calendar.YEAR),base.get(Calendar.MONTH),base.get(Calendar.DAY_OF_MONTH));dpd.setTitle(title);dpd.show();
     }
-    void checkDeadlines(){
-        long now=System.currentTimeMillis();Cursor cur=db.arts();try{while(cur.moveToNext()){Art a=art(cur);if(a.dueAt>0&&a.dueAt<now&&!isDelivered(a.status)&&!"Pago".equals(a.status)&&!"Pagamento atrasado".equals(a.status)){db.updateStatus(a.id,"Arte atrasada");if(a.alertedAt==0){showOverdueAlert(a);db.markAlerted(a.id,now);}}}}finally{cur.close();}
+    void requestNotificationPermission(){\n        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},909);\n    }\n    void checkDeadlines(){
+        long now=System.currentTimeMillis();Cursor cur=db.arts();try{while(cur.moveToNext()){Art a=art(cur);if(a.dueAt>0&&a.dueAt<now&&!isDelivered(a.status)&&!"Pago".equals(a.status)&&!"Pagamento atrasado".equals(a.status)){db.updateStatus(a.id,"Arte atrasada");if(a.alertedAt==0){showOverdueAlert(a);OverdueNotifier.show(this,a.id,a.company,a.service,a.desc,a.photo);db.markAlerted(a.id,now);}}}}finally{cur.close();}
     }
     void showOverdueAlert(Art a){
         try{final TextToSpeech[] holder=new TextToSpeech[1];holder[0]=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){holder[0].setLanguage(new Locale("pt","BR"));holder[0].speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"atraso");}},null);}catch(Exception ignored){}
@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
         PendingIntent pi=PendingIntent.getBroadcast(this,(int)(id%1000000),i,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         if(Build.VERSION.SDK_INT>=23)am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,when,pi);else am.set(AlarmManager.RTC_WAKEUP,when,pi);
     }
-    Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";return s;}
+    Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";s.desc="";return s;}
 
     void menu(){
         final String[] a={"👥  Clientes","💰  Tabela de preços","💳  Configurar PIX","📊  Resumo financeiro","📅  Agenda de prazos","🎨  Personalizar cor","📄  Gerar PDF","💾  Backup / Restaurar"};
@@ -235,7 +235,7 @@ public class MainActivity extends Activity {
         Button add=action("＋ NOVO SERVIÇO");l.addView(add);
         LinearLayout listS=new LinearLayout(this);listS.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(listS);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         final Dialog d=new Dialog(this);d.setTitle("Tabela de preços");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
-        final Runnable[] reload=new Runnable[1];reload[0]=()->{listS.removeAllViews();Cursor c=db.services();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double co=c.getDouble(2),pr=c.getDouble(3);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("Valor cobrado: R$ "+money(pr),11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteService(id);reload[0].run();syncDataFolder();});listS.addView(row);}}finally{c.close();}};
+        final Runnable[] reload=new Runnable[1];reload[0]=()->{listS.removeAllViews();Cursor c=db.services();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1),sd=c.getString(2);double co=c.getDouble(3),pr=c.getDouble(4);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n+" • R$ "+money(pr),15,WHITE));tx.addView(text(sd==null||sd.isEmpty()?"Sem descrição":sd,11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteService(id);reload[0].run();syncDataFolder();});listS.addView(row);}}finally{c.close();}};
         add.setOnClickListener(v->serviceForm(reload[0]));reload[0].run();
     }
 
@@ -244,7 +244,7 @@ public class MainActivity extends Activity {
         EditText n=input("Nome do serviço (ex.: Criação de arte)");EditText pr=input("Valor (R$)");pr.setInputType(2|8192);
         l.addView(n);l.addView(pr,lp(8));Button save=action("SALVAR TABELA");save.setTextColor(BG);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
         Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
-        save.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addService(n.getText().toString(),0,num(pr.getText().toString()));d.dismiss();reload.run();syncDataFolder();});
+        save.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addService(n.getText().toString(),sd.getText().toString(),0,num(pr.getText().toString()));d.dismiss();reload.run();syncDataFolder();});
     }
 
     void companiesDialog(){
