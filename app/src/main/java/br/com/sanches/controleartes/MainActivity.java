@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
         db=new LocalDB(this);
         migrateLegacy();
+        syncDataFolder();
         build();
     }
 
@@ -119,17 +120,17 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(30));cp.setMargins(0,dp(10),0,dp(8));c.addView(chip,cp);
         LinearLayout b=new LinearLayout(this);Button st=action("STATUS"),z=action("💬 COBRAR"),e=action("✎ EDITAR"),del=action("🗑 APAGAR");
         b.addView(st,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(z,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(e,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(del,new LinearLayout.LayoutParams(0,dp(42),1));c.addView(b);
-        st.setOnClickListener(v->status(a));z.setOnClickListener(v->whats(a));e.setOnClickListener(v->form(a));del.setOnClickListener(v->deleteArt(a));
+        st.setOnClickListener(v->status(a));z.setOnClickListener(v->whats(a));e.setOnClickListener(v->form(a,null,null));del.setOnClickListener(v->deleteArt(a));
         list.addView(c);list.addView(new Space(this),new LinearLayout.LayoutParams(1,dp(10)));
     }
 
     int statusColor(String s){if("Pago".equals(s))return GREEN;if(s.contains("atras"))return RED;if("Arte entregue".equals(s))return BLUE;return YELLOW;}
     void status(final Art a){
         String[] arr={"A receber","Arte entregue","Pago","Arte atrasada","Pagamento atrasado"};
-        new AlertDialog.Builder(this).setTitle("Alterar status").setItems(arr,(d,w)->{db.updateStatus(a.id,arr[w]);refresh();}).show();
+        new AlertDialog.Builder(this).setTitle("Alterar status").setItems(arr,(d,w)->{db.updateStatus(a.id,arr[w]);refresh();syncDataFolder();}).show();
     }
     void deleteArt(final Art a){
-        new AlertDialog.Builder(this).setTitle("Apagar demanda?").setMessage("Esta arte será removida do banco local. Não dá para desfazer.").setNegativeButton("CANCELAR",null).setPositiveButton("APAGAR",(d,w)->{db.deleteArt(a.id);refresh();}).show();
+        new AlertDialog.Builder(this).setTitle("Apagar demanda?").setMessage("Esta arte será removida do banco local. Não dá para desfazer.").setNegativeButton("CANCELAR",null).setPositiveButton("APAGAR",(d,w)->{db.deleteArt(a.id);refresh();syncDataFolder();}).show();
     }
 
     void form(final Art old, final String presetCompany, final String presetPhone){
@@ -180,7 +181,7 @@ public class MainActivity extends Activity {
         Button add=action("＋ NOVO SERVIÇO");l.addView(add);
         LinearLayout listS=new LinearLayout(this);listS.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(listS);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         final Dialog d=new Dialog(this);d.setTitle("Tabela de preços");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
-        final Runnable[] reload=new Runnable[1];reload[0]=()->{listS.removeAllViews();Cursor c=db.services();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double co=c.getDouble(2),pr=c.getDouble(3);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("Custo R$ "+money(co)+"  •  Venda R$ "+money(pr)+"  •  Margem R$ "+money(pr-co),11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteService(id);reload[0].run();});listS.addView(row);}}finally{c.close();}};
+        final Runnable[] reload=new Runnable[1];reload[0]=()->{listS.removeAllViews();Cursor c=db.services();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double co=c.getDouble(2),pr=c.getDouble(3);LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("Custo R$ "+money(co)+"  •  Venda R$ "+money(pr)+"  •  Margem R$ "+money(pr-co),11,MUTED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->{db.deleteService(id);reload[0].run();syncDataFolder();});listS.addView(row);}}finally{c.close();}};
         add.setOnClickListener(v->serviceForm(reload[0]));reload[0].run();
     }
 
@@ -189,7 +190,7 @@ public class MainActivity extends Activity {
         EditText n=input("Nome do serviço");EditText co=input("Custo (R$)");EditText pr=input("Preço de venda (R$)");co.setInputType(2|8192);pr.setInputType(2|8192);
         l.addView(n);l.addView(co,lp(8));l.addView(pr,lp(8));Button save=action("SALVAR TABELA");save.setTextColor(BG);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
         Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
-        save.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addService(n.getText().toString(),num(co.getText().toString()),num(pr.getText().toString()));d.dismiss();reload.run();});
+        save.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addService(n.getText().toString(),num(co.getText().toString()),num(pr.getText().toString()));d.dismiss();reload.run();syncDataFolder();});
     }
 
     void companiesDialog(){
@@ -222,14 +223,14 @@ public class MainActivity extends Activity {
         Button add=action("＋ NOVA DESPESA");l.addView(add);
         LinearLayout ls=new LinearLayout(this);ls.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(ls);l.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         Dialog d=new Dialog(this);d.setTitle("Despesas gerais");d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(520));
-        final Runnable[] reload=new Runnable[1];reload[0]=()->{ls.removeAllViews();double total=0;Cursor c=db.expenses();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double v=c.getDouble(2);total+=v;LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("R$ "+money(v),12,RED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(x->{db.deleteExpense(id);reload[0].run();refresh();});ls.addView(row);}}finally{c.close();}TextView t=text("TOTAL DE DESPESAS: R$ "+money(total),15,WHITE);t.setTypeface(null,1);ls.addView(t,0);};
+        final Runnable[] reload=new Runnable[1];reload[0]=()->{ls.removeAllViews();double total=0;Cursor c=db.expenses();try{while(c.moveToNext()){long id=c.getLong(0);String n=c.getString(1);double v=c.getDouble(2);total+=v;LinearLayout row=new LinearLayout(this);row.setPadding(0,dp(7),0,dp(7));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(text(n,15,WHITE));tx.addView(text("R$ "+money(v),12,RED));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));Button del=action("🗑");row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(x->{db.deleteExpense(id);reload[0].run();refresh();syncDataFolder();});ls.addView(row);}}finally{c.close();}TextView t=text("TOTAL DE DESPESAS: R$ "+money(total),15,WHITE);t.setTypeface(null,1);ls.addView(t,0);};
         add.setOnClickListener(v->expenseForm(reload[0]));reload[0].run();
     }
     void expenseForm(Runnable reload){
         LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(15));
         EditText n=input("Descrição (ex.: tinta, transporte, energia)");EditText v=input("Valor (R$)");v.setInputType(2|8192);l.addView(n);l.addView(v,lp(8));
         Button s=action("SALVAR DESPESA");s.setTextColor(BG);s.setBackground(bg(GREEN,14));l.addView(s,lp(12));Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
-        s.setOnClickListener(x->{if(n.getText().toString().trim().isEmpty())return;db.addExpense(n.getText().toString(),num(v.getText().toString()));d.dismiss();reload.run();refresh();});
+        s.setOnClickListener(x->{if(n.getText().toString().trim().isEmpty())return;db.addExpense(n.getText().toString(),num(v.getText().toString()));d.dismiss();reload.run();refresh();syncDataFolder();});
     }
 
     void backupMenu(){
@@ -268,7 +269,7 @@ public class MainActivity extends Activity {
         l.addView(text("PIX para cobranças",20,WHITE));l.addView(text("Esses dados serão incluídos automaticamente na mensagem.",12,MUTED));
         EditText key=input("Chave PIX (CPF, CNPJ, e-mail, telefone ou aleatória)");EditText name=input("Nome do recebedor");key.setText(db.setting("pix"));name.setText(db.setting("pix_name"));l.addView(key,lp(12));l.addView(name,lp(8));
         Button s=action("✓ SALVAR PIX");s.setTextColor(BG);s.setBackground(bg(GREEN,14));l.addView(s,lp(12));Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.92),-2);}
-        s.setOnClickListener(v->{db.setting("pix",key.getText().toString().trim());db.setting("pix_name",name.getText().toString().trim());d.dismiss();});
+        s.setOnClickListener(v->{db.setting("pix",key.getText().toString().trim());db.setting("pix_name",name.getText().toString().trim());syncDataFolder();d.dismiss();});
     }
 
     void summaryDialog(){
@@ -287,6 +288,60 @@ public class MainActivity extends Activity {
         try{startActivity(Intent.createChooser(i,"Enviar cobrança"));}catch(Exception ignored){}
     }
 
+    File dataFolder(){
+        File base=getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+        File folder=new File(base,"ControleArtesVIP");
+        if(!folder.exists())folder.mkdirs();
+        return folder;
+    }
+    void syncDataFolder(){
+        try{
+            File folder=dataFolder();
+            File json=new File(folder,"banco_local.json");
+            OutputStream out=new FileOutputStream(json);
+            out.write(db.exportJson().toString(2).getBytes("UTF-8"));out.close();
+            File info=new File(folder,"LEIA-ME.txt");
+            OutputStream inf=new FileOutputStream(info);
+            inf.write("Controle de Artes VIP - dados locais e backups do aplicativo.".getBytes("UTF-8"));inf.close();
+        }catch(Exception ignored){}
+    }
+    void generatePdf(String onlyCompany){
+        try{
+            File folder=dataFolder();
+            String name=onlyCompany==null?"relatorio_geral":("cliente_"+onlyCompany.replaceAll("[^a-zA-Z0-9À-ÿ]+","_"));
+            File file=new File(folder,name+"_"+System.currentTimeMillis()+".pdf");
+            PdfDocument doc=new PdfDocument();int pageNo=1;PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,pageNo).create());
+            Canvas canvas=page.getCanvas();Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.rgb(25,30,38));p.setTextSize(22);p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            canvas.drawText(onlyCompany==null?"CONTROLE DE ARTES":"DEMANDAS • "+onlyCompany,36,48,p);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(11);p.setColor(Color.DKGRAY);
+            canvas.drawText("Relatório gerado em "+new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault()).format(new Date()),36,68,p);
+            float y=100;double total=0,received=0,receivable=0,cost=0;Cursor cur=onlyCompany==null?db.arts():db.clientArts(onlyCompany);
+            try{
+                while(cur.moveToNext()){
+                    Art a=art(cur);if(y>790){doc.finishPage(page);pageNo++;page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,pageNo).create());canvas=page.getCanvas();y=50;}
+                    p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(12);p.setColor(Color.rgb(20,25,30));
+                    String title=(a.company+" • "+(a.desc.isEmpty()?(a.service.isEmpty()?"Arte":a.service):a.desc));
+                    canvas.drawText(title.length()>72?title.substring(0,72):title,36,y,p);y+=17;
+                    p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(10);
+                    canvas.drawText("Valor: R$ "+money(a.price)+"   Custo: R$ "+money(a.cost)+"   Status: "+a.status,36,y,p);y+=22;
+                    total+=a.price;cost+=a.cost;if("Pago".equals(a.status))received+=a.price;else receivable+=a.price;
+                }
+            }finally{cur.close();}
+            p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(12);y+=10;
+            canvas.drawText("TOTAL: R$ "+money(total)+"   RECEBIDO: R$ "+money(received)+"   A RECEBER: R$ "+money(receivable),36,y,p);y+=18;
+            canvas.drawText("CUSTOS: R$ "+money(cost)+"   LUCRO ESTIMADO: R$ "+money(total-cost),36,y,p);
+            doc.finishPage(page);doc.writeTo(new FileOutputStream(file));doc.close();
+            sharePdf(file);
+        }catch(Exception e){Toast.makeText(this,"Não foi possível gerar o PDF.",Toast.LENGTH_LONG).show();}
+    }
+    void sharePdf(File file){
+        try{
+            Uri uri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".fileprovider",file);
+            Intent i=new Intent(Intent.ACTION_SEND);i.setType("application/pdf");i.putExtra(Intent.EXTRA_STREAM,uri);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(i,"Enviar PDF"));
+        }catch(Exception e){Toast.makeText(this,"PDF salvo na pasta do app.",Toast.LENGTH_LONG).show();}
+    }
+
     @Override protected void onActivityResult(int r,int c,Intent data){
         super.onActivityResult(r,c,data);
         if(c==RESULT_OK&&data!=null){if(r==101){pendingImage=data.getData();try{getContentResolver().takePersistableUriPermission(pendingImage,data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}else if(r==202)writeBackup(data.getData());else if(r==203)new AlertDialog.Builder(this).setTitle("Restaurar backup?").setMessage("Isso substituirá os dados atuais do aplicativo.").setNegativeButton("CANCELAR",null).setPositiveButton("RESTAURAR",(d,w)->readBackup(data.getData())).show();}
@@ -297,7 +352,7 @@ public class MainActivity extends Activity {
         if(old.getBoolean("migrated_sqlite",false))return;
         try{
             JSONArray a=new JSONArray(old.getString("items","[]"));
-            for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);db.addCompany(o.optString("cliente"),"");db.addArt(o.optString("cliente"),"", "",o.optString("desc"),num(o.optString("valor")),0,o.optString("status","A receber"),o.optString("foto"));}
+            for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);db.addCompany(o.optString("cliente"),"");db.addArt(db.addCompany(o.optString("cliente"),""),o.optString("cliente"),"", "",o.optString("desc"),num(o.optString("valor")),0,o.optString("status","A receber"),o.optString("foto"));}
         }catch(Exception ignored){}
         old.edit().putBoolean("migrated_sqlite",true).apply();
     }
