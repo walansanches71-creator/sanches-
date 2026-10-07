@@ -13,7 +13,8 @@ public class DeadlineReceiver extends BroadcastReceiver {
         if(a==null || a.dueAt<=0 || a.dueAt>System.currentTimeMillis() || "Pago".equals(a.status) || "Arte entregue".equals(a.status))return;
         if(a.alertedAt>0)return;
         db.updateStatus(id,"Arte atrasada");
-        db.markAlerted(id,System.currentTimeMillis());\n        OverdueNotifier.show(context,id,a.company,a.service,a.description,a.photo);
+        db.markAlerted(id,System.currentTimeMillis());
+        OverdueNotifier.show(context,id,a.company,a.service,a.description,a.photo);
         try{
             final TextToSpeech[] holder=new TextToSpeech[1];
             holder[0]=new TextToSpeech(context,status->{
