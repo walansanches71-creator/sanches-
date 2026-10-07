@@ -8,6 +8,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.pdf.PdfDocument;
 import android.graphics.Paint;
 import android.graphics.Canvas;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.RectF;
 import android.os.Environment;
 import android.net.Uri;
 import android.database.Cursor;
@@ -110,13 +113,19 @@ public class MainActivity extends Activity {
     void card(final Art a){
         LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(14),dp(13),dp(14),dp(12));c.setBackground(bg(SURFACE,18));
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        if(!a.photo.isEmpty())try{img.setImageURI(Uri.parse(a.photo));}catch(Exception ignored){}else img.setBackground(bg(SURFACE2,12));
-        head.addView(img,new LinearLayout.LayoutParams(dp(62),dp(62)));
+        LinearLayout gallery=new LinearLayout(this);gallery.setOrientation(LinearLayout.HORIZONTAL);gallery.setGravity(Gravity.CENTER_VERTICAL);gallery.setPadding(0,0,dp(2),0);
+        ArrayList<Uri> cardPhotos=photoUris(a.photo);
+        if(cardPhotos.isEmpty()){ImageView img=new ImageView(this);img.setBackground(bg(SURFACE2,12));gallery.addView(img,new LinearLayout.LayoutParams(dp(76),dp(62)));}
+        else{
+            int show=Math.min(3,cardPhotos.size());
+            for(int pi=0;pi<show;pi++){ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.CENTER_CROP);try{img.setImageURI(cardPhotos.get(pi));}catch(Exception ignored){}LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(dp(show==1?76:52),dp(62));ip.setMargins(0,0,dp(3),0);gallery.addView(img,ip);}
+            if(cardPhotos.size()>3){TextView more=text("+"+(cardPhotos.size()-3),11,WHITE);more.setGravity(Gravity.CENTER);more.setBackground(bg(SURFACE2,12));gallery.addView(more,new LinearLayout.LayoutParams(dp(34),dp(62)));}
+        }
+        head.addView(gallery,new LinearLayout.LayoutParams(dp(184),dp(62)));
         LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.setPadding(dp(12),0,0,0);
         TextView cli=text(a.company.isEmpty()?"Sem cliente":a.company,17,WHITE);cli.setTypeface(null,1);
         info.addView(cli);info.addView(text((a.service.isEmpty()?"Arte":a.service)+" • "+(a.desc.isEmpty()?"":a.desc),12,MUTED));
-        TextView val=text("R$ "+money(a.price)+"   •   custo R$ "+money(a.cost),15,GREEN);val.setTypeface(null,1);info.addView(val);
+        TextView val=text("A receber: R$ "+money(a.price)+"   •   custo: R$ "+money(a.cost),15,GREEN);val.setTypeface(null,1);info.addView(val);
         head.addView(info,new LinearLayout.LayoutParams(0,-2,1));c.addView(head);
         TextView chip=text("●  "+a.status,11,statusColor(a.status));chip.setTypeface(null,1);chip.setPadding(dp(10),dp(6),dp(10),dp(6));chip.setBackground(bg(statusColor(a.status),18));chip.setTextColor(BG);
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(30));cp.setMargins(0,dp(10),0,dp(8));c.addView(chip,cp);
@@ -147,21 +156,24 @@ public class MainActivity extends Activity {
         Spinner serviceSpinner=new Spinner(this);ArrayList<Service> services=new ArrayList<>();services.add(blankService());Cursor sc=db.services();try{while(sc.moveToNext()){Service s=new Service();s.id=sc.getLong(0);s.name=sc.getString(1);s.cost=sc.getDouble(2);s.price=sc.getDouble(3);services.add(s);}}finally{sc.close();}
         ArrayList<String> names=new ArrayList<>();for(Service s:services)names.add(s.name);ArrayAdapter<String> sa=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names);serviceSpinner.setAdapter(sa);
         l.addView(serviceSpinner,lp(8));
-        final double[] selectedPrice={old==null?0:old.price};EditText cost=input("Custo da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        final double[] selectedPrice={old==null?0:old.price};
+        TextView valueLabel=text("VALOR DA ARTE: R$ "+money(selectedPrice[0]),15,GREEN);valueLabel.setTypeface(null,1);l.addView(valueLabel,lp(6));
+        EditText cost=input("Custo interno da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
         l.addView(cost,lp(8));
 
         Button photo=action("📷  ADICIONAR / TROCAR FOTOS");TextView photoInfo=text("Nenhuma foto selecionada",11,MUTED);photoInfo.setPadding(dp(4),dp(5),0,0);l.addView(photo,lp(10));l.addView(photoInfo);
         Button save=action("✓  SALVAR ARTE");save.setTextColor(BG);save.setTypeface(null,1);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
 
         if(old!=null){
-            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(money(old.cost));if(!old.photo.isEmpty())photoInfo.setText("✓ Foto já vinculada");
+            valueLabel.setText("VALOR DA ARTE: R$ "+money(old.price));
+            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(old.cost>0?money(old.cost):"");if(!old.photo.isEmpty())photoInfo.setText(photoUris(old.photo).size()+" foto(s) vinculada(s)");
             for(int i=0;i<services.size();i++)if(services.get(i).name.equals(old.service)){serviceSpinner.setSelection(i);selectedPrice[0]=old.price;}
             for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(old.company))clientSpinner.setSelection(i);
         }
         clientSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){if(!clients.isEmpty()&&pos<clients.size()){Company x=clients.get(pos);company.setText(x.name);phone.setText(x.phone);}}});
                 serviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             public void onNothingSelected(android.widget.AdapterView<?> p){}
-            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;}}
+            public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){Service s=services.get(pos);if(s.id>0){selectedPrice[0]=s.price;valueLabel.setText("VALOR DA ARTE: R$ "+money(selectedPrice[0]));}}
         });
         photo.setOnClickListener(q->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,101);});
         save.setOnClickListener(q->{
@@ -285,14 +297,41 @@ public class MainActivity extends Activity {
     }
 
     void whats(Art a){
-        String pix=db.setting("pix");String pixName=db.setting("pix_name");
-        String msg="Olá, "+(a.company.isEmpty()?"cliente":a.company)+"! 👋\n\nPassando para lembrar do pagamento da arte: "+(a.desc.isEmpty()?(a.service.isEmpty()?"arte":a.service):a.desc)+".\nValor: R$ "+money(a.price);
+        String pix=db.setting("pix"),pixName=db.setting("pix_name");
+        String msg="Olá, "+(a.company.isEmpty()?"cliente":a.company)+"! 👋\n\n"+
+                "Passando para lembrar do pagamento da arte: "+(a.desc.isEmpty()?(a.service.isEmpty()?"arte":a.service):a.desc)+".\n"+
+                "Valor: R$ "+money(a.price);
         if(!pix.isEmpty()){msg+="\n\n💳 PIX: "+pix;if(!pixName.isEmpty())msg+="\nRecebedor: "+pixName;}
         msg+="\n\nQuando puder, me envie o pagamento. Obrigado!";
-        Intent i=new Intent(Intent.ACTION_SEND);String photo=a.photo;
-        if(!photo.isEmpty()){Uri u=Uri.parse(photo);i.setType("image/*");i.putExtra(Intent.EXTRA_STREAM,u);i.putExtra(Intent.EXTRA_TEXT,msg);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);i.setClipData(ClipData.newRawUri("foto",u));}
-        else{i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg);}
-        try{startActivity(Intent.createChooser(i,"Enviar cobrança"));}catch(Exception ignored){}
+        ArrayList<Uri> photos=photoUris(a.photo);
+        try{
+            Intent i=new Intent(Intent.ACTION_SEND);
+            if(photos.size()>1){
+                Uri collage=createPhotoCollage(photos);
+                if(collage!=null){i.setType("image/*");i.putExtra(Intent.EXTRA_STREAM,collage);i.putExtra(Intent.EXTRA_TEXT,msg);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);i.setClipData(ClipData.newRawUri("arte",collage));}
+                else{i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg);}
+            }else if(photos.size()==1){
+                i.setType("image/*");i.putExtra(Intent.EXTRA_STREAM,photos.get(0));i.putExtra(Intent.EXTRA_TEXT,msg);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);i.setClipData(ClipData.newRawUri("arte",photos.get(0)));
+            }else{i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,msg);}
+            i.setPackage("com.whatsapp");
+            try{startActivity(i);}catch(Exception noWhats){i.setPackage(null);startActivity(Intent.createChooser(i,"Enviar cobrança"));}
+        }catch(Exception e){Toast.makeText(this,"Não foi possível abrir o WhatsApp.",Toast.LENGTH_LONG).show();}
+    }
+
+    Uri createPhotoCollage(ArrayList<Uri> photos){
+        try{
+            int count=Math.min(photos.size(),6),w=1200,h=((count+1)/2)*850;
+            Bitmap out=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(out);canvas.drawColor(Color.WHITE);
+            Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+            for(int idx=0;idx<count;idx++){
+                Bitmap b=BitmapFactory.decodeStream(getContentResolver().openInputStream(photos.get(idx)));if(b==null)continue;
+                int col=idx%2,row=idx/2;RectF dst=new RectF(col*600+10,row*850+10,col*600+590,row*850+840);
+                float scale=Math.max(dst.width()/b.getWidth(),dst.height()/b.getHeight());float bw=b.getWidth()*scale,bh=b.getHeight()*scale;
+                RectF srcDst=new RectF(dst.centerX()-bw/2,dst.centerY()-bh/2,dst.centerX()+bw/2,dst.centerY()+bh/2);canvas.drawBitmap(b,null,srcDst,p);b.recycle();
+            }
+            File f=new File(getCacheDir(),"cobranca_"+System.currentTimeMillis()+".jpg");FileOutputStream outS=new FileOutputStream(f);out.compress(Bitmap.CompressFormat.JPEG,90,outS);outS.close();
+            return androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);
+        }catch(Exception e){return null;}
     }
 
     ArrayList<Uri> photoUris(String value){
@@ -332,31 +371,35 @@ public class MainActivity extends Activity {
     }
     void generatePdf(String onlyCompany){
         try{
-            File folder=dataFolder();
-            String name=onlyCompany==null?"relatorio_geral":("cliente_"+onlyCompany.replaceAll("[^a-zA-Z0-9À-ÿ]+","_"));
+            File folder=dataFolder();String name=onlyCompany==null?"relatorio_geral":("cliente_"+onlyCompany.replaceAll("[^a-zA-Z0-9À-ÿ]+","_"));
             File file=new File(folder,name+"_"+System.currentTimeMillis()+".pdf");
-            PdfDocument doc=new PdfDocument();int pageNo=1;PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,pageNo).create());
-            Canvas canvas=page.getCanvas();Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.rgb(25,30,38));p.setTextSize(22);p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            canvas.drawText(onlyCompany==null?"CONTROLE DE ARTES":"DEMANDAS • "+onlyCompany,36,48,p);
-            p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(11);p.setColor(Color.DKGRAY);
-            canvas.drawText("Relatório gerado em "+new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault()).format(new Date()),36,68,p);
-            float y=100;double total=0,received=0,receivable=0,cost=0;Cursor cur=onlyCompany==null?db.arts():db.clientArts(onlyCompany);
-            try{
-                while(cur.moveToNext()){
-                    Art a=art(cur);if(y>790){doc.finishPage(page);pageNo++;page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,pageNo).create());canvas=page.getCanvas();y=50;}
-                    p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(12);p.setColor(Color.rgb(20,25,30));
-                    String title=(a.company+" • "+(a.desc.isEmpty()?(a.service.isEmpty()?"Arte":a.service):a.desc));
-                    canvas.drawText(title.length()>72?title.substring(0,72):title,36,y,p);y+=17;
-                    p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(10);
-                    canvas.drawText("Valor: R$ "+money(a.price)+"   Custo: R$ "+money(a.cost)+"   Status: "+a.status,36,y,p);y+=22;
-                    total+=a.price;cost+=a.cost;if("Pago".equals(a.status))received+=a.price;else receivable+=a.price;
-                }
-            }finally{cur.close();}
-            p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(12);y+=10;
-            canvas.drawText("TOTAL: R$ "+money(total)+"   RECEBIDO: R$ "+money(received)+"   A RECEBER: R$ "+money(receivable),36,y,p);y+=18;
-            canvas.drawText("CUSTOS: R$ "+money(cost)+"   LUCRO ESTIMADO: R$ "+money(total-cost),36,y,p);
-            doc.finishPage(page);doc.writeTo(new FileOutputStream(file));doc.close();
-            sharePdf(file);
+            PdfDocument doc=new PdfDocument();int pageNo=1;
+            PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,pageNo).create());Canvas canvas=page.getCanvas();
+            double total=0,received=0,receivable=0,cost=0;ArrayList<Art> arts=new ArrayList<>();Cursor cur=onlyCompany==null?db.arts():db.clientArts(onlyCompany);
+            try{while(cur.moveToNext()){Art a=art(cur);arts.add(a);total+=a.price;cost+=a.cost;if("Pago".equals(a.status))received+=a.price;else receivable+=a.price;}}finally{cur.close();}
+            int accent=GREEN;Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            canvas.drawColor(Color.rgb(247,249,252));
+            p.setColor(accent);canvas.drawRect(0,0,595,110,p);
+            p.setColor(Color.WHITE);p.setTextSize(25);canvas.drawText("CONTROLE DE ARTES",36,43,p);p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(11);canvas.drawText("RELATÓRIO FINANCEIRO • USO PESSOAL",36,66,p);
+            p.setTextSize(10);canvas.drawText(new java.text.SimpleDateFormat("dd/MM/yyyy • HH:mm",Locale.getDefault()).format(new Date()),36,88,p);
+            p.setColor(Color.rgb(30,36,45));p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(19);canvas.drawText(onlyCompany==null?"Resumo geral":onlyCompany,36,145,p);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(10);p.setColor(Color.rgb(100,110,122));canvas.drawText(arts.size()+" demanda(s) registrada(s)",36,164,p);
+            // summary cards
+            float[] xs={36,180,324,468};String[] labels={"FATURAMENTO","RECEBIDO","A RECEBER","CUSTOS"};double[] vals={total,received,receivable,cost};
+            for(int i=0;i<4;i++){float x=xs[i];p.setColor(Color.WHITE);canvas.drawRoundRect(new RectF(x,185,x+112,255),12,12,p);p.setColor(Color.rgb(100,110,122));p.setTextSize(8);p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);canvas.drawText(labels[i],x+10,205,p);p.setColor(i==2?Color.rgb(220,150,20):(i==3?Color.rgb(60,130,220):accent));p.setTextSize(12);canvas.drawText("R$ "+money(vals[i]),x+10,229,p);}
+            float y=285;
+            p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(12);p.setColor(Color.rgb(30,36,45));canvas.drawText("DEMANDAS",36,y,p);y+=18;
+            for(Art a:arts){
+                if(y>735){p.setColor(Color.rgb(100,110,122));p.setTextSize(8);canvas.drawText("Controle de Artes • página "+pageNo,36,815,p);doc.finishPage(page);pageNo++;page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,pageNo).create());canvas=page.getCanvas();canvas.drawColor(Color.rgb(247,249,252));p.setColor(accent);canvas.drawRect(0,0,595,70,p);p.setColor(Color.WHITE);p.setTextSize(16);canvas.drawText("CONTROLE DE ARTES",36,42,p);y=100;}
+                p.setColor(Color.WHITE);canvas.drawRoundRect(new RectF(36,y,559,y+76),12,12,p);
+                p.setColor(Color.rgb(30,36,45));p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(11);
+                String title=(a.desc.isEmpty()?(a.service.isEmpty()?"Arte":a.service):a.desc);canvas.drawText((a.company+" • "+title).length()>66?(a.company+" • "+title).substring(0,66):(a.company+" • "+title),50,y+22,p);
+                p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(9);p.setColor(Color.rgb(100,110,122));canvas.drawText("Status: "+a.status,50,y+42,p);canvas.drawText("Valor R$ "+money(a.price)+"   •   Custo R$ "+money(a.cost)+"   •   Resultado R$ "+money(a.price-a.cost),50,y+58,p);
+                y+=88;
+            }
+            p.setColor(Color.rgb(30,36,45));p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(12);canvas.drawText("RESULTADO",36,y+5,p);p.setTextSize(10);canvas.drawText("Lucro estimado: R$ "+money(total-cost)+"   •   Margem: "+(total>0?money((total-cost)*100/total):"0,00")+"%",36,y+24,p);
+            p.setColor(Color.rgb(100,110,122));p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(8);canvas.drawText("Controle de Artes VIP • Relatório interno • "+new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new Date()),36,815,p);
+            doc.finishPage(page);doc.writeTo(new FileOutputStream(file));doc.close();sharePdf(file);
         }catch(Exception e){Toast.makeText(this,"Não foi possível gerar o PDF.",Toast.LENGTH_LONG).show();}
     }
     void sharePdf(File file){
@@ -369,7 +412,24 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int r,int c,Intent data){
         super.onActivityResult(r,c,data);
-        if(c==RESULT_OK&&data!=null){if(r==101){pendingImage=data.getData();try{getContentResolver().takePersistableUriPermission(pendingImage,data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}else if(r==202)writeBackup(data.getData());else if(r==203)new AlertDialog.Builder(this).setTitle("Restaurar backup?").setMessage("Isso substituirá os dados atuais do aplicativo.").setNegativeButton("CANCELAR",null).setPositiveButton("RESTAURAR",(d,w)->readBackup(data.getData())).show();}
+        if(c==RESULT_OK&&data!=null){
+            if(r==101){
+                pendingImages.clear();
+                try{
+                    if(data.getClipData()!=null){
+                        for(int k=0;k<data.getClipData().getItemCount();k++){
+                            Uri u=data.getClipData().getItemAt(k).getUri();pendingImages.add(u);
+                            try{getContentResolver().takePersistableUriPermission(u,data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+                        }
+                    }else if(data.getData()!=null){
+                        Uri u=data.getData();pendingImages.add(u);
+                        try{getContentResolver().takePersistableUriPermission(u,data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+                    }
+                    Toast.makeText(this,pendingImages.size()+" foto(s) selecionada(s)",Toast.LENGTH_SHORT).show();
+                }catch(Exception ignored){}
+            }else if(r==202)writeBackup(data.getData());
+            else if(r==203)new AlertDialog.Builder(this).setTitle("Restaurar backup?").setMessage("Isso substituirá os dados atuais do aplicativo.").setNegativeButton("CANCELAR",null).setPositiveButton("RESTAURAR",(d,w)->readBackup(data.getData())).show();
+        }
     }
 
     void migrateLegacy(){
