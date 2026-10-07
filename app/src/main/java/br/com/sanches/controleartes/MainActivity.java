@@ -26,7 +26,7 @@ import org.json.*;
 
 public class MainActivity extends Activity {
     LinearLayout root,list;
-    TextView total,receber,pago,atrasado,custos,lucro,empty;
+    TextView total,receber,pago,atrasado,custos,lucro,empty,todaySummary,todayNext;
     LocalDB db;
     Uri pendingImage;
     ArrayList<Uri> pendingImages=new ArrayList<>();
@@ -34,7 +34,7 @@ public class MainActivity extends Activity {
     int GREEN=Color.rgb(37,211,102); final int WHITE=Color.rgb(245,247,250), MUTED=Color.rgb(151,163,176);
     final int RED=Color.rgb(255,88,88), YELLOW=Color.rgb(255,190,70), BLUE=Color.rgb(90,170,255);
 
-    static class Art { long id; String company,phone,service,desc,status,photo; double price,cost; long receivedAt,dueAt,alertedAt; }
+    static class Art { long id; String company,phone,service,desc,status,photo,quoteNumber; double price,cost,paidAmount; long receivedAt,dueAt,alertedAt; }
     static class Company { long id; String name,phone; }
     static class Service { long id; String name,desc; double cost,price; }
 
@@ -78,6 +78,7 @@ public class MainActivity extends Activity {
         custos=metric(r3,"CUSTOS","R$ 0,00",BLUE);lucro=metric(r3,"LUCRO","R$ 0,00",GREEN);
         dash.addView(r1,new LinearLayout.LayoutParams(-1,dp(76)));dash.addView(r2,new LinearLayout.LayoutParams(-1,dp(76)));dash.addView(r3,new LinearLayout.LayoutParams(-1,dp(76)));
         root.addView(dash);
+        root.addView(todayPanel(),new LinearLayout.LayoutParams(-1,dp(126)));
 
         Button add=action("＋  NOVA ARTE");add.setTextSize(15);add.setTypeface(null,1);add.setTextColor(BG);add.setBackground(bg(GREEN,16));add.setOnClickListener(v->form(null,null,null));
         root.addView(add,new LinearLayout.LayoutParams(-1,dp(52)));
@@ -95,25 +96,26 @@ public class MainActivity extends Activity {
 
     void refresh(){
         checkDeadlines();
-        list.removeAllViews();double rec=0,pag=0,atr=0,cst=0;
+        list.removeAllViews();double rec=0,pag=0,atr=0,cst=0,totalBilled=0;
         Cursor c=db.arts();
         try{
             while(c.moveToNext()){
-                Art a=art(c);double n=a.price;cst+=a.cost;
-                if("A receber".equals(a.status)||"Arte entregue".equals(a.status))rec+=n;
-                if("Pago".equals(a.status))pag+=n;
-                if(a.status.contains("atras"))atr+=n;
+                Art a=art(c);double n=a.price;double remaining=Math.max(0,n-a.paidAmount);cst+=a.cost;totalBilled+=n;
+                rec+=remaining;
+                pag+=a.paidAmount;
+                if(a.status.contains("atras"))atr+=remaining;
                 card(a);
             }
         }finally{c.close();}
-        total.setText("R$ "+money(rec+pag));receber.setText("R$ "+money(rec));pago.setText("R$ "+money(pag));atrasado.setText("R$ "+money(atr));custos.setText("R$ "+money(cst));lucro.setText("R$ "+money((rec+pag)-cst));
+        total.setText("R$ "+money(totalBilled));receber.setText("R$ "+money(rec));pago.setText("R$ "+money(pag));atrasado.setText("R$ "+money(atr));custos.setText("R$ "+money(cst));lucro.setText("R$ "+money(totalBilled-cst));
+        updateTodayPanel();
         if(list.getChildCount()==0){empty=text("Nenhuma arte cadastrada\n\nToque em “＋ NOVA ARTE” para começar.",15,MUTED);empty.setGravity(Gravity.CENTER);empty.setPadding(0,dp(40),0,dp(40));list.addView(empty);}
     }
 
     Art art(Cursor c){
         Art a=new Art();a.id=c.getLong(c.getColumnIndexOrThrow("id"));a.company=c.getString(c.getColumnIndexOrThrow("company"));a.phone=c.getString(c.getColumnIndexOrThrow("phone"));
         a.service=c.getString(c.getColumnIndexOrThrow("service"));a.desc=c.getString(c.getColumnIndexOrThrow("description"));a.price=c.getDouble(c.getColumnIndexOrThrow("price"));
-        a.cost=c.getDouble(c.getColumnIndexOrThrow("cost"));a.status=c.getString(c.getColumnIndexOrThrow("status"));a.photo=c.getString(c.getColumnIndexOrThrow("photo"));a.receivedAt=c.getLong(c.getColumnIndexOrThrow("received_at"));a.dueAt=c.getLong(c.getColumnIndexOrThrow("due_at"));a.alertedAt=c.getLong(c.getColumnIndexOrThrow("alerted_at"));return a;
+        a.cost=c.getDouble(c.getColumnIndexOrThrow("cost"));a.paidAmount=c.getDouble(c.getColumnIndexOrThrow("paid_amount"));a.quoteNumber=c.getString(c.getColumnIndexOrThrow("quote_number"));a.status=c.getString(c.getColumnIndexOrThrow("status"));a.photo=c.getString(c.getColumnIndexOrThrow("photo"));a.receivedAt=c.getLong(c.getColumnIndexOrThrow("received_at"));a.dueAt=c.getLong(c.getColumnIndexOrThrow("due_at"));a.alertedAt=c.getLong(c.getColumnIndexOrThrow("alerted_at"));return a;
     }
 
     void card(final Art a){
@@ -132,13 +134,14 @@ public class MainActivity extends Activity {
         TextView cli=text(a.company.isEmpty()?"Sem cliente":a.company,17,WHITE);cli.setTypeface(null,1);
         info.addView(cli);info.addView(text((a.service.isEmpty()?"Arte":a.service)+" • "+(a.desc.isEmpty()?"":a.desc),12,MUTED));
         if(a.dueAt>0){String ds="Entrega: "+dateTime(a.dueAt);int dc=a.dueAt<System.currentTimeMillis()&&!isDelivered(a.status)&&!"Pago".equals(a.status)?RED:BLUE;TextView dt=text(ds,11,dc);dt.setTypeface(null,1);info.addView(dt);}
-        TextView val=text("A receber: R$ "+money(a.price)+"   •   custo: R$ "+money(a.cost),15,GREEN);val.setTypeface(null,1);info.addView(val);
+        double remaining=Math.max(0,a.price-a.paidAmount);
+        TextView val=text("A receber: R$ "+money(remaining)+"   •   pago: R$ "+money(a.paidAmount)+"   •   custo: R$ "+money(a.cost),13,GREEN);val.setTypeface(null,1);info.addView(val);
         head.addView(info,new LinearLayout.LayoutParams(0,-2,1));c.addView(head);
         TextView chip=text("●  "+a.status,11,statusColor(a.status));chip.setTypeface(null,1);chip.setPadding(dp(10),dp(6),dp(10),dp(6));chip.setBackground(bg(statusColor(a.status),18));chip.setTextColor(BG);
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(30));cp.setMargins(0,dp(10),0,dp(8));c.addView(chip,cp);
-        LinearLayout b=new LinearLayout(this);Button st=action("STATUS"),z=action("💬 COBRAR"),e=action("✎ EDITAR"),del=action("🗑 APAGAR");
-        b.addView(st,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(z,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(e,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(del,new LinearLayout.LayoutParams(0,dp(42),1));c.addView(b);
-        st.setOnClickListener(v->status(a));z.setOnClickListener(v->whats(a));e.setOnClickListener(v->form(a,null,null));del.setOnClickListener(v->deleteArt(a));
+        LinearLayout b=new LinearLayout(this);Button st=action("STATUS"),pay=action("💰 PAGAR"),z=action("💬 COBRAR"),e=action("✎ EDITAR"),del=action("🗑");
+        b.addView(st,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(pay,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(z,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(e,new LinearLayout.LayoutParams(0,dp(42),1));b.addView(del,new LinearLayout.LayoutParams(0,dp(42),1));c.addView(b);
+        st.setOnClickListener(v->status(a));pay.setOnClickListener(v->paymentDialog(a));z.setOnClickListener(v->whats(a));e.setOnClickListener(v->form(a,null,null));del.setOnClickListener(v->deleteArt(a));
         list.addView(c);list.addView(new Space(this),new LinearLayout.LayoutParams(1,dp(10)));
     }
 
@@ -167,7 +170,9 @@ public class MainActivity extends Activity {
         final double[] selectedPrice={old==null?0:old.price};
         TextView valueLabel=text("VALOR DA ARTE: R$ "+money(selectedPrice[0]),15,GREEN);valueLabel.setTypeface(null,1);l.addView(valueLabel,lp(6));
         EditText cost=input("Custo interno da arte (R$)");cost.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        l.addView(cost,lp(8));
+        EditText paid=input("Valor já recebido (R$)");paid.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        EditText quote=input("Nº do orçamento (opcional)");
+        l.addView(cost,lp(8));l.addView(paid,lp(8));l.addView(quote,lp(8));
         final long[] receivedAt={old!=null&&old.receivedAt>0?old.receivedAt:System.currentTimeMillis()};
         final long[] dueAt={old!=null?old.dueAt:0};
         Button receivedBtn=action("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));
@@ -185,7 +190,7 @@ public class MainActivity extends Activity {
 
         if(old!=null){
             valueLabel.setText("VALOR DA ARTE: R$ "+money(old.price));
-            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(old.cost>0?money(old.cost):"");receivedBtn.setText("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));
+            company.setText(old.company);phone.setText(old.phone);desc.setText(old.desc);cost.setText(old.cost>0?money(old.cost):"");paid.setText(old.paidAmount>0?money(old.paidAmount):"");quote.setText(old.quoteNumber==null?"":old.quoteNumber);receivedBtn.setText("📥  DEMANDA RECEBIDA: "+dateTime(receivedAt[0]));
             dueDateBtn.setText("📅  DATA DE ENTREGA: "+(dueAt[0]>0?dateOnly(dueAt[0]):"Definir data"));
             dueTimeBtn.setText("🕐  HORA DE ENTREGA: "+(dueAt[0]>0?timeOnly(dueAt[0]):"Digite a hora"));if(!old.photo.isEmpty())photoInfo.setText(photoUris(old.photo).size()+" foto(s) vinculada(s)");
             for(int i=0;i<services.size();i++)if(services.get(i).name.equals(old.service)){serviceSpinner.setSelection(i);selectedPrice[0]=old.price;}
@@ -199,11 +204,11 @@ public class MainActivity extends Activity {
         photo.setOnClickListener(q->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,101);});
         save.setOnClickListener(q->{
             String co=company.getText().toString().trim();if(co.isEmpty()){company.setError("Informe o cliente");return;}
-            String ph=phone.getText().toString().trim();String sv=serviceSpinner.getSelectedItem().toString();String ct=cost.getText().toString().trim();
+            String ph=phone.getText().toString().trim();String sv=serviceSpinner.getSelectedItem().toString();String ct=cost.getText().toString().trim();double paidNow=Math.min(selectedPrice[0],Math.max(0,num(paid.getText().toString())));String quoteNo=quote.getText().toString().trim();String finalStatus=paidNow>=selectedPrice[0]&&selectedPrice[0]>0?"Pago":(old==null?"A receber":old.status);
             String photoValue=old==null?"":old.photo;if(!pendingImages.isEmpty()){JSONArray pa=new JSONArray();for(Uri u:pendingImages)pa.put(u.toString());photoValue=pa.toString();pendingImages.clear();pendingImage=null;}
             long clientId=db.addCompany(co,ph);
-            if(old==null)db.addArt(clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),"A receber",photoValue,receivedAt[0],dueAt[0]);
-            else db.updateArt(old.id,clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),old.status,photoValue,receivedAt[0],dueAt[0]);
+            if(old==null)db.addArt(clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),paidNow,quoteNo,finalStatus,photoValue,receivedAt[0],dueAt[0]);
+            else db.updateArt(old.id,clientId,co,ph,sv,desc.getText().toString().trim(),selectedPrice[0],num(ct),paidNow,quoteNo,finalStatus,photoValue,receivedAt[0],dueAt[0]);
             refresh();syncDataFolder();if(dueAt[0]>System.currentTimeMillis())scheduleDeadline(old==null?db.lastArtId():old.id,dueAt[0]);d.dismiss();
         });
         if(presetCompany!=null&&old==null){company.setText(presetCompany);phone.setText(presetPhone==null?"":presetPhone);for(int i=0;i<clients.size();i++)if(clients.get(i).name.equals(presetCompany))clientSpinner.setSelection(i);}
@@ -273,7 +278,7 @@ public class MainActivity extends Activity {
         long now=System.currentTimeMillis();Cursor cur=db.arts();try{while(cur.moveToNext()){Art a=art(cur);if(a.dueAt>0&&a.dueAt<now&&!isDelivered(a.status)&&!"Pago".equals(a.status)&&!"Pagamento atrasado".equals(a.status)){db.updateStatus(a.id,"Arte atrasada");if(a.alertedAt==0){showOverdueAlert(a);OverdueNotifier.show(this,a.id,a.company,a.service,a.desc,a.photo);db.markAlerted(a.id,now);}}}}finally{cur.close();}
     }
     void showOverdueAlert(Art a){
-        try{final TextToSpeech[] holder=new TextToSpeech[1];holder[0]=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){holder[0].setLanguage(new Locale("pt","BR"));holder[0].speak("Atenção! A demanda da empresa "+a.company+" está atrasada.",TextToSpeech.QUEUE_FLUSH,null,"atraso");}},null);}catch(Exception ignored){}
+        AlertVoiceService.start(this,"Atenção! A entrega da arte da empresa "+a.company+" está atrasada.");
         new AlertDialog.Builder(this).setTitle("🚨 DEMANDA ATRASADA").setMessage(a.company+" • "+(a.service.isEmpty()?"Arte":a.service)+"\nPrazo: "+dateTime(a.dueAt)).setPositiveButton("OK",null).show();
     }
     void scheduleDeadline(long id,long when){
@@ -315,9 +320,63 @@ public class MainActivity extends Activity {
     }
     Service blankService(){Service s=new Service();s.name="— Sem tabela de preço —";s.desc="";return s;}
 
+
+    LinearLayout todayPanel(){
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(14),dp(10),dp(14),dp(8));box.setBackground(bg(SURFACE,18));
+        LinearLayout top=new LinearLayout(this);TextView title=text("BOM DIA, SANCHES 👊",15,WHITE);title.setTypeface(null,1);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        Button k=action("📋 KANBAN");k.setMinHeight(dp(36));top.addView(k,new LinearLayout.LayoutParams(dp(105),dp(38)));k.setOnClickListener(v->kanbanDialog());box.addView(top);
+        todaySummary=text("Carregando resumo de hoje...",11,MUTED);box.addView(todaySummary);
+        todayNext=text("Próxima entrega: —",11,YELLOW);todayNext.setTypeface(null,1);box.addView(todayNext);
+        return box;
+    }
+    void updateTodayPanel(){
+        if(todaySummary==null)return;
+        Calendar start=Calendar.getInstance();start.set(Calendar.HOUR_OF_DAY,0);start.set(Calendar.MINUTE,0);start.set(Calendar.SECOND,0);start.set(Calendar.MILLISECOND,0);
+        long dayStart=start.getTimeInMillis(),dayEnd=dayStart+86400000L,now=System.currentTimeMillis();
+        int overdue=0,today=0;double receive=0,paidToday=0;Art next=null;
+        Cursor c=db.arts();try{while(c.moveToNext()){Art a=art(c);double rem=Math.max(0,a.price-a.paidAmount);if(a.dueAt>0&&a.dueAt<now&&!isDelivered(a.status)&&!"Pago".equals(a.status))overdue++;if(a.dueAt>=dayStart&&a.dueAt<dayEnd&&!isDelivered(a.status)&&!"Pago".equals(a.status))today++;receive+=rem;if(a.paidAmount>0&&a.receivedAt>=dayStart&&a.receivedAt<dayEnd)paidToday+=a.paidAmount;if(a.dueAt>now&&!isDelivered(a.status)&&!"Pago".equals(a.status)&&(next==null||a.dueAt<next.dueAt))next=a;}}finally{c.close();}
+        todaySummary.setText("🔴 "+overdue+" atrasada(s)   🟠 "+today+" entrega(s) hoje   💰 R$ "+money(receive)+" a receber   💵 R$ "+money(paidToday)+" recebido hoje");
+        if(next==null)todayNext.setText("Próxima entrega: nenhuma cadastrada"); else todayNext.setText("PRÓXIMA: "+next.company+" — "+dateTime(next.dueAt)+" • "+(next.service.isEmpty()?"Arte":next.service));
+    }
+    void paymentDialog(final Art a){
+        EditText v=input("Valor recebido agora (R$)");v.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        double remaining=Math.max(0,a.price-a.paidAmount);v.setText(money(remaining));
+        new AlertDialog.Builder(this).setTitle("💰 Registrar pagamento").setMessage("Total: R$ "+money(a.price)+"\nJá recebido: R$ "+money(a.paidAmount)+"\nRestante: R$ "+money(remaining)).setView(v).setNegativeButton("CANCELAR",null).setPositiveButton("REGISTRAR",(d,w)->{double add=num(v.getText().toString());if(add<0)return;double paid=Math.min(a.price,a.paidAmount+add);db.updatePaid(a.id,paid);refresh();syncDataFolder();}).show();
+    }
+    void kanbanDialog(){
+        final String[] cols={"NOVAS","PRODUÇÃO","PRONTAS","ENTREGUES","A RECEBER","PAGAS"};final String[] statuses={"Nova demanda","Em produção","Pronta","Arte entregue","A receber","Pago"};
+        final Dialog d=new Dialog(this);LinearLayout outer=new LinearLayout(this);outer.setOrientation(LinearLayout.VERTICAL);outer.setPadding(dp(12),dp(12),dp(12),dp(12));outer.addView(text("📋 Fluxo de produção • segure e arraste",18,WHITE));
+        HorizontalScrollView hsv=new HorizontalScrollView(this);LinearLayout board=new LinearLayout(this);board.setOrientation(LinearLayout.HORIZONTAL);hsv.addView(board);outer.addView(hsv,new LinearLayout.LayoutParams(-1,0,1));
+        ArrayList<LinearLayout> columns=new ArrayList<>();
+        for(int i=0;i<cols.length;i++){LinearLayout col=new LinearLayout(this);col.setOrientation(LinearLayout.VERTICAL);col.setPadding(dp(8),dp(8),dp(8),dp(8));col.setBackground(bg(SURFACE,16));TextView h=text(cols[i],11,WHITE);h.setTypeface(null,1);col.addView(h);final String target=statuses[i];col.setOnDragListener((v,e)->{if(e.getAction()==DragEvent.ACTION_DROP){try{long id=(Long)e.getLocalState();db.updateStatus(id,target);refresh();syncDataFolder();loadKanban(columns,statuses);}catch(Exception ignored){}return true;}return true;});board.addView(col,new LinearLayout.LayoutParams(dp(170),-1));columns.add(col);}
+        loadKanban(columns,statuses);d.setContentView(outer);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.98),dp(620));
+    }
+    void loadKanban(ArrayList<LinearLayout> columns,String[] statuses){
+        for(LinearLayout c:columns)while(c.getChildCount()>1)c.removeViewAt(1);
+        Cursor cur=db.arts();try{while(cur.moveToNext()){Art a=art(cur);int idx=0;if("Em produção".equals(a.status))idx=1;else if("Pronta".equals(a.status))idx=2;else if("Arte entregue".equals(a.status))idx=3;else if("A receber".equals(a.status)||"Pagamento atrasado".equals(a.status)||"Arte atrasada".equals(a.status))idx=4;else if("Pago".equals(a.status))idx=5;TextView card=text(a.company+"\n"+(a.service.isEmpty()?"Arte":a.service)+"\nR$ "+money(Math.max(0,a.price-a.paidAmount)),12,WHITE);card.setPadding(dp(9),dp(8),dp(9),dp(8));card.setBackground(bg(SURFACE2,12));card.setOnLongClickListener(v->{v.startDragAndDrop(ClipData.newPlainText("art_id",String.valueOf(a.id)),new View.DragShadowBuilder(v),a.id,0);return true;});columns.get(idx).addView(card,new LinearLayout.LayoutParams(-1,dp(76)));}}finally{cur.close();}
+    }
+    void financeDialog(){
+        Calendar st=Calendar.getInstance();st.set(Calendar.DAY_OF_MONTH,1);st.set(Calendar.HOUR_OF_DAY,0);st.set(Calendar.MINUTE,0);st.set(Calendar.SECOND,0);st.set(Calendar.MILLISECOND,0);long start=st.getTimeInMillis();
+        double billed=0,paid=0,cost=0,expenses=0;Cursor c=db.arts();try{while(c.moveToNext()){Art a=art(c);if(a.receivedAt>=start){billed+=a.price;paid+=a.paidAmount;cost+=a.cost;}}}finally{c.close();}
+        Cursor e=db.expenses();try{while(e.moveToNext())if(e.getLong(3)>=start)expenses+=e.getDouble(2);}finally{e.close();}
+        double receivable=Math.max(0,billed-paid);
+        String msg="FATURAMENTO DO MÊS\nR$ "+money(billed)+"\n\nRECEBIDO\nR$ "+money(paid)+"\n\nA RECEBER\nR$ "+money(receivable)+"\n\nCUSTOS DAS ARTES\nR$ "+money(cost)+"\n\nDESPESAS\nR$ "+money(expenses)+"\n\nLUCRO ESTIMADO\nR$ "+money(billed-cost-expenses)+"\n\nLUCRO REALIZADO\nR$ "+money(paid-cost-expenses);
+        new AlertDialog.Builder(this).setTitle("💰 Financeiro do mês").setMessage(msg).setPositiveButton("OK",null).setNeutralButton("DESPESAS",(d,w)->expensesDialog()).show();
+    }
+    void quoteDialog(){
+        Cursor c=db.companies();ArrayList<Company> clients=new ArrayList<>();try{while(c.moveToNext()){Company x=new Company();x.id=c.getLong(0);x.name=c.getString(1);x.phone=c.getString(2);clients.add(x);}}finally{c.close();}
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(18),dp(18),dp(16));Spinner sp=new Spinner(this);ArrayList<String> names=new ArrayList<>();for(Company x:clients)names.add(x.name);if(names.isEmpty())names.add("Cliente não cadastrado");sp.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,names));
+        EditText service=input("Serviço / descrição");EditText qty=input("Quantidade");qty.setInputType(InputType.TYPE_CLASS_NUMBER);EditText value=input("Valor total (R$)");value.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);EditText prazo=input("Prazo (ex.: 08/10/2026)");
+        l.addView(text("EMPRESA",10,MUTED));l.addView(sp,lp(4));l.addView(service,lp(8));l.addView(qty,lp(8));l.addView(value,lp(8));l.addView(prazo,lp(8));Button pdf=action("🧾 GERAR ORÇAMENTO PDF");pdf.setTextColor(BG);pdf.setBackground(bg(GREEN,14));l.addView(pdf,lp(12));
+        Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),-2);
+        pdf.setOnClickListener(v->{String co=clients.isEmpty()?"Cliente":clients.get(Math.max(0,sp.getSelectedItemPosition())).name;String sv=service.getText().toString().trim();int q=(int)num(qty.getText().toString());double val=num(value.getText().toString());if(sv.isEmpty()||val<=0){Toast.makeText(this,"Informe serviço e valor.",Toast.LENGTH_SHORT).show();return;}generateQuotePdf(co,sv,q,val,prazo.getText().toString());d.dismiss();});
+    }
+    void generateQuotePdf(String company,String service,int qty,double value,String deadline){
+        try{File file=new File(dataFolder(),"orcamento_"+System.currentTimeMillis()+".pdf");PdfDocument doc=new PdfDocument();PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,1).create());Canvas canvas=page.getCanvas();Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);canvas.drawColor(Color.rgb(247,249,252));p.setColor(GREEN);canvas.drawRect(0,0,595,120,p);p.setColor(Color.WHITE);p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(27);canvas.drawText("ORÇAMENTO",36,52,p);p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(11);canvas.drawText("CONTROLE DE ARTES VIP",36,76,p);p.setTextSize(9);canvas.drawText("ORÇAMENTO #"+new java.text.SimpleDateFormat("yyyyMMddHHmmss",Locale.getDefault()).format(new Date()),36,98,p);p.setColor(Color.rgb(30,36,45));p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(17);canvas.drawText(company,36,165,p);p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(12);canvas.drawText("Serviço: "+service,36,194,p);canvas.drawText("Quantidade: "+qty,36,218,p);canvas.drawText("Prazo: "+(deadline.isEmpty()?"A combinar":deadline),36,242,p);p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);p.setTextSize(22);canvas.drawText("TOTAL: R$ "+money(value),36,300,p);p.setTypeface(android.graphics.Typeface.DEFAULT);p.setTextSize(11);canvas.drawText("Validade e condições podem ser combinadas pelo WhatsApp.",36,340,p);if(!db.setting("pix").isEmpty())canvas.drawText("PIX: "+db.setting("pix"),36,370,p);doc.finishPage(page);doc.writeTo(new FileOutputStream(file));doc.close();sharePdf(file);}catch(Exception e){Toast.makeText(this,"Não foi possível gerar o orçamento.",Toast.LENGTH_LONG).show();}
+    }
     void menu(){
-        final String[] a={"👥  Clientes","💰  Tabela de preços","💳  Configurar PIX","📊  Resumo financeiro","📅  Agenda de prazos","🎨  Personalizar cor","📄  Gerar PDF","💾  Backup / Restaurar"};
-        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)companiesDialog();if(w==1)servicesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)agendaDialog();if(w==5)themeDialog();if(w==6)generatePdf(null);if(w==7)backupMenu();}).show();
+        final String[] a={"👥  Clientes","💰  Tabela de preços","💳  Configurar PIX","📊  Resumo financeiro","📅  Agenda de prazos","📋  Kanban de produção","💵  Financeiro completo","🧾  Novo orçamento PDF","🔊  Configurar voz","🎨  Personalizar cor","📄  Gerar PDF","💾  Backup / Restaurar"};
+        new AlertDialog.Builder(this).setTitle("Controle de Artes").setItems(a,(d,w)->{if(w==0)companiesDialog();if(w==1)servicesDialog();if(w==2)pixDialog();if(w==3)summaryDialog();if(w==4)agendaDialog();if(w==5)kanbanDialog();if(w==6)financeDialog();if(w==7)quoteDialog();if(w==8)voiceSettingsDialog();if(w==9)themeDialog();if(w==10)generatePdf(null);if(w==11)backupMenu();}).show();
     }
 
     void servicesDialog(){
@@ -347,7 +406,7 @@ public class MainActivity extends Activity {
 
     void chargeCompany(String company,String phone){
         ArrayList<Art> open=new ArrayList<>();double total=0,cost=0;Cursor cur=db.arts();
-        try{while(cur.moveToNext()){Art a=art(cur);if(company.equalsIgnoreCase(a.company)&&!"Pago".equals(a.status)){open.add(a);total+=a.price;cost+=a.cost;}}}finally{cur.close();}
+        try{while(cur.moveToNext()){Art a=art(cur);double rem=Math.max(0,a.price-a.paidAmount);if(company.equalsIgnoreCase(a.company)&&rem>0){open.add(a);total+=rem;cost+=a.cost;}}}finally{cur.close();}
         if(open.isEmpty()){new AlertDialog.Builder(this).setTitle("Nenhuma cobrança").setMessage("Não há artes em aberto para "+company+".").setPositiveButton("OK",null).show();return;}
         StringBuilder msg=new StringBuilder("Olá, "+company+"! 👋\\n\\nSegue o fechamento das artes: \\n");
         for(int i=0;i<open.size();i++){Art a=open.get(i);msg.append(i+1).append(". ").append(a.service.isEmpty()?(a.desc.isEmpty()?"Arte":a.desc):a.service).append(" — R$ ").append(money(a.price)).append("\\n");}
@@ -403,9 +462,9 @@ public class MainActivity extends Activity {
     }
 
     void companyForm(Runnable reload){
-        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(15));EditText n=input("Nome da empresa");EditText p=input("WhatsApp (opcional)");l.addView(n);l.addView(p,lp(8));
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(20),dp(20),dp(20),dp(15));EditText n=input("Nome da empresa");EditText p=input("WhatsApp (opcional)");EditText address=input("Endereço (opcional)");EditText notes=input("Observações do cliente");l.addView(n);l.addView(p,lp(8));l.addView(address,lp(8));l.addView(notes,lp(8));
         Button s=action("SALVAR EMPRESA");s.setTextColor(BG);s.setBackground(bg(GREEN,14));l.addView(s,lp(12));Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null){d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.9),-2);}
-        s.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addCompany(n.getText().toString(),p.getText().toString());d.dismiss();reload.run();syncDataFolder();});
+        s.setOnClickListener(v->{if(n.getText().toString().trim().isEmpty())return;db.addCompany(n.getText().toString(),p.getText().toString(),address.getText().toString(),notes.getText().toString());d.dismiss();reload.run();syncDataFolder();});
     }
 
     void pixDialog(){
@@ -427,7 +486,7 @@ public class MainActivity extends Activity {
         Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94),dp(560));
     }
     void summaryDialog(){
-        double revenue=0,c=0,paid=0,receivable=0;Cursor cur=db.arts();try{while(cur.moveToNext()){double p=cur.getDouble(cur.getColumnIndexOrThrow("price")),co=cur.getDouble(cur.getColumnIndexOrThrow("cost"));revenue+=p;c+=co;if("Pago".equals(cur.getString(cur.getColumnIndexOrThrow("status"))))paid+=p;else receivable+=p;}}finally{cur.close();}
+        double revenue=0,c=0,paid=0,receivable=0;Cursor cur=db.arts();try{while(cur.moveToNext()){double p=cur.getDouble(cur.getColumnIndexOrThrow("price")),co=cur.getDouble(cur.getColumnIndexOrThrow("cost")),pg=cur.getDouble(cur.getColumnIndexOrThrow("paid_amount"));revenue+=p;c+=co;paid+=pg;receivable+=Math.max(0,p-pg);}}finally{cur.close();}
         new AlertDialog.Builder(this).setTitle("Resumo financeiro").setMessage("Faturamento: R$ "+money(revenue)+"\nCustos: R$ "+money(c)+"\nLucro estimado: R$ "+money(revenue-c)+"\n\nRecebido: R$ "+money(paid)+"\nA receber: R$ "+money(receivable)+"\n\nPIX cadastrado: "+(db.setting("pix").isEmpty()?"não":"sim")).setPositiveButton("OK",null).show();
     }
 
@@ -435,7 +494,7 @@ public class MainActivity extends Activity {
         String pix=db.setting("pix"),pixName=db.setting("pix_name");
         String msg="Olá, "+(a.company.isEmpty()?"cliente":a.company)+"! 👋\n\n"+
                 "Passando para lembrar do pagamento da arte: "+(a.desc.isEmpty()?(a.service.isEmpty()?"arte":a.service):a.desc)+".\n"+
-                "Valor: R$ "+money(a.price);
+                "Valor restante: R$ "+money(Math.max(0,a.price-a.paidAmount));
         if(!pix.isEmpty()){msg+="\n\n💳 PIX: "+pix;if(!pixName.isEmpty())msg+="\nRecebedor: "+pixName;}
         msg+="\n\nQuando puder, me envie o pagamento. Obrigado!";
 
@@ -481,6 +540,22 @@ public class MainActivity extends Activity {
     }
     Uri firstPhoto(String value){ArrayList<Uri> p=photoUris(value);return p.isEmpty()?null:p.get(0);}
     void loadThemeColor(){try{String h=db.setting("theme_color");if(!h.isEmpty())GREEN=Color.parseColor(h);}catch(Exception ignored){}}
+
+    void voiceSettingsDialog(){
+        final SharedPreferences p=getSharedPreferences("voz_alerta",0);
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(18),dp(18),dp(18),dp(14));
+        l.addView(text("🔊 Voz dos avisos de atraso",19,WHITE));
+        l.addView(text("O aviso fala até 3 vezes e pode ser parado pela notificação.",11,MUTED),lp(8));
+        Spinner repeat=new Spinner(this);repeat.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"1 vez","2 vezes","3 vezes"}));repeat.setSelection(Math.max(0,Math.min(2,p.getInt("repeat",3)-1)));l.addView(repeat,lp(8));
+        Spinner voice=new Spinner(this);ArrayList<String> voiceNames=new ArrayList<>();ArrayList<String> voiceIds=new ArrayList<>();voiceNames.add("Voz padrão do Android");voiceIds.add("");l.addView(voice,lp(8));
+        SeekBar volume=new SeekBar(this);volume.setMax(100);volume.setProgress((int)(p.getFloat("volume",1f)*100));l.addView(text("Volume do aviso",11,MUTED),lp(8));l.addView(volume);
+        Button save=action("✓ SALVAR CONFIGURAÇÃO");save.setTextColor(BG);save.setBackground(bg(GREEN,14));l.addView(save,lp(12));
+        final TextToSpeech[] temp=new TextToSpeech[1];
+        temp[0]=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS&&Build.VERSION.SDK_INT>=21){try{for(android.speech.tts.Voice v:temp[0].getVoices()){if(v.getLocale()!=null&&"pt".equals(v.getLocale().getLanguage())){voiceIds.add(v.getName());voiceNames.add(v.getName());}}ArrayAdapter<String> va=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,voiceNames);voice.setAdapter(va);String saved=p.getString("voice_name","");int pos=voiceIds.indexOf(saved);if(pos>=0)voice.setSelection(pos);}catch(Exception ignored){}}});
+        Dialog d=new Dialog(this);d.setContentView(l);d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.92),-2);
+        save.setOnClickListener(v->{p.edit().putInt("repeat",repeat.getSelectedItemPosition()+1).putFloat("volume",volume.getProgress()/100f).putString("voice_name",voiceIds.get(Math.max(0,voice.getSelectedItemPosition()))).apply();try{if(temp[0]!=null)temp[0].shutdown();}catch(Exception ignored){}d.dismiss();});
+    }
+
     void themeDialog(){
         String[] names={"Verde","Azul","Roxo","Laranja","Vermelho","Ciano","Personalizada"};
         String[] colors={"#25D366","#4F8CFF","#9B59FF","#FF9F43","#FF5C5C","#20C7C9",""};
@@ -517,7 +592,7 @@ public class MainActivity extends Activity {
             PdfDocument doc=new PdfDocument();int pageNo=1;
             PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,pageNo).create());Canvas canvas=page.getCanvas();
             double total=0,received=0,receivable=0,cost=0;ArrayList<Art> arts=new ArrayList<>();Cursor cur=onlyCompany==null?db.arts():db.clientArts(onlyCompany);
-            try{while(cur.moveToNext()){Art a=art(cur);arts.add(a);total+=a.price;cost+=a.cost;if("Pago".equals(a.status))received+=a.price;else receivable+=a.price;}}finally{cur.close();}
+            try{while(cur.moveToNext()){Art a=art(cur);arts.add(a);total+=a.price;cost+=a.cost;received+=a.paidAmount;receivable+=Math.max(0,a.price-a.paidAmount);}}finally{cur.close();}
             int accent=GREEN;Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             canvas.drawColor(Color.rgb(247,249,252));
             p.setColor(accent);canvas.drawRect(0,0,595,110,p);

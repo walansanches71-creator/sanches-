@@ -3,6 +3,9 @@
  <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+ <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+ <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+ <queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent></queries>
  <application android:theme="@style/AppTheme" android:label="Controle de Artes VIP" android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:allowBackup="true" android:supportsRtl="true">
   <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="true">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
@@ -14,5 +17,6 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-    </application>
+    <service android:name=".AlertVoiceService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
+ </application>
 </manifest>
